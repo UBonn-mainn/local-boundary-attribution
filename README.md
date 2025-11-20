@@ -103,8 +103,8 @@ Use the notebooks in `notebooks/`.
 ## Installation
 
 ```bash
-git clone https://github.com/<your-username>/<repo-name>.git
-cd <repo-name>
+git clone https://github.com/UBonn-mainn/local-boundary-attribution.git
+cd local-boundary-attribution
 pip install -r requirements.txt
 ```
 
