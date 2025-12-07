@@ -1,8 +1,11 @@
-import numpy as np
-import matplotlib.pyplot as plt
+from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def generate_linearly_separable_data(
@@ -11,47 +14,48 @@ def generate_linearly_separable_data(
     random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Generate a simple linearly-separable 2D dataset (or n_features-D in principle).
+    Generate a simple linearly separable dataset with two classes.
 
     Parameters
     ----------
     n_samples_per_class : int
         Number of samples per class.
     n_features : int
-        Number of features (2 by default, so you can plot it).
+        Number of features. Default is 2 so the data can be visualized.
     random_state : int or None
         If given, use as RNG seed for reproducibility.
 
     Returns
     -------
     X : np.ndarray
-        Array of shape (2 * n_samples_per_class, n_features).
+        Feature matrix of shape (2 * n_samples_per_class, n_features).
     y : np.ndarray
-        Array of shape (2 * n_samples_per_class,) with class labels {0, 1}.
+        Label vector of shape (2 * n_samples_per_class,) with values {0, 1}.
     """
     if random_state is not None:
         np.random.seed(random_state)
     else:
-        # Seed based on current time for variation, as in original script
+        # Seed based on current time (like your original script)
         from time import time
         np.random.seed(int(time()))
 
-    # Class 0
+    # Generate Class 0
     mean_class0 = np.random.uniform(-5, 0, size=n_features)
     cov_class0 = np.eye(n_features) * np.random.uniform(0.5, 1.5)
     X_class0 = np.random.multivariate_normal(mean_class0, cov_class0, n_samples_per_class)
     y_class0 = np.zeros(n_samples_per_class)
 
-    # Class 1
+    # Generate Class 1
     mean_class1 = np.random.uniform(2, 7, size=n_features)
     cov_class1 = np.eye(n_features) * np.random.uniform(0.5, 1.5)
     X_class1 = np.random.multivariate_normal(mean_class1, cov_class1, n_samples_per_class)
     y_class1 = np.ones(n_samples_per_class)
 
-    # Combine and shuffle
+    # Combine
     X = np.vstack((X_class0, X_class1))
     y = np.hstack((y_class0, y_class1))
 
+    # Shuffle
     shuffle_idx = np.random.permutation(len(X))
     X = X[shuffle_idx]
     y = y[shuffle_idx]
@@ -67,7 +71,7 @@ def save_dataset_to_csv(
     timestamp: Optional[str] = None,
 ) -> Path:
     """
-    Save (X, y) to a CSV file.
+    Save a dataset (X, y) to a CSV file.
 
     Parameters
     ----------
@@ -76,11 +80,11 @@ def save_dataset_to_csv(
     y : np.ndarray
         Label vector of shape (n_samples,).
     out_dir : str or Path
-        Directory in which to save the file.
+        Directory where the CSV file will be saved.
     prefix : str
         Prefix for the filename.
     timestamp : str or None
-        If None, a current timestamp is used.
+        If None, current timestamp (YYYYMMDD_HHMMSS) is used.
 
     Returns
     -------
@@ -97,6 +101,7 @@ def save_dataset_to_csv(
 
     data_to_save = np.column_stack((X, y))
     header = ",".join([f"feature{i+1}" for i in range(X.shape[1])]) + ",class"
+
     np.savetxt(filename, data_to_save, delimiter=",", header=header, comments="")
 
     return filename
@@ -111,7 +116,7 @@ def plot_2d_dataset(
     show: bool = True,
 ) -> Optional[Path]:
     """
-    Plot a 2D dataset (only works for n_features == 2).
+    Visualize a 2D dataset and optionally save the plot.
 
     Parameters
     ----------
@@ -120,32 +125,47 @@ def plot_2d_dataset(
     y : np.ndarray
         Label vector of shape (n_samples,).
     out_dir : str or Path
-        Directory to save the plot.
+        Directory where the PNG file will be saved.
     prefix : str
         Prefix for the plot filename.
     timestamp : str or None
-        If None, current timestamp is used.
+        If None, current timestamp (YYYYMMDD_HHMMSS) is used.
     show : bool
-        Whether to display the plot via plt.show().
+        Whether to display the plot using plt.show().
 
     Returns
     -------
     Path or None
-        Path to the saved PNG file if saved, else None.
+        Path to the saved PNG file if saved; otherwise None.
     """
     if X.shape[1] != 2:
         raise ValueError("plot_2d_dataset requires X to have exactly 2 features.")
 
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     if timestamp is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     plot_path = out_dir / f"{prefix}_{timestamp}.png"
 
     plt.figure(figsize=(10, 6))
-    plt.scatter(X[y == 0, 0], X[y == 0, 1], c="blue", label="Class 0", alpha=0.6, edgecolors="k")
-    plt.scatter(X[y == 1, 0], X[y == 1, 1], c="red", label="Class 1", alpha=0.6, edgecolors="k")
+    plt.scatter(
+        X[y == 0, 0],
+        X[y == 0, 1],
+        c="blue",
+        label="Class 0",
+        alpha=0.6,
+        edgecolors="k",
+    )
+    plt.scatter(
+        X[y == 1, 0],
+        X[y == 1, 1],
+        c="red",
+        label="Class 1",
+        alpha=0.6,
+        edgecolors="k",
+    )
     plt.xlabel("Feature 1")
     plt.ylabel("Feature 2")
     plt.title("Linearly Separable 2D Data")
