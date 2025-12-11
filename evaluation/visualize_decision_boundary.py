@@ -80,6 +80,7 @@ def plot_decision_boundary(
 if __name__ == "__main__":
     import argparse
     from models.load_model import load_model
+    from utils.dataset_utils import load_dataset_from_csv
 
     parser = argparse.ArgumentParser(description="Visualize model decision boundary.")
     parser.add_argument("--data_path", type=str, required=True, help="Path to input CSV file")
@@ -91,9 +92,7 @@ if __name__ == "__main__":
     
     # Load Data
     print(f"Loading data from {args.data_path}...")
-    data = np.loadtxt(args.data_path, delimiter=",", skiprows=1)
-    X = data[:, :-1].astype(np.float32)
-    y = data[:, -1].astype(np.float32)
+    X, y = load_dataset_from_csv(args.data_path)
     
     # Load Model
     print(f"Loading model from {args.model_path} (Type: {args.model_type})...")

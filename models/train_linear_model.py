@@ -7,6 +7,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from pathlib import Path
 from models.load_model import LinearClassifier
+from utils.dataset_utils import load_dataset_from_csv
 
 def train(args):
     # Set seeds
@@ -19,12 +20,9 @@ def train(args):
         raise FileNotFoundError(f"Data file not found at {data_path}")
         
     print(f"Loading data from {data_path}...")
-    # Load CSV using numpy, skipping header
-    data = np.loadtxt(data_path, delimiter=",", skiprows=1)
-    
-    # Split into X and y. Assumes last column is class.
-    X_np = data[:, :-1].astype(np.float32)
-    y_np = data[:, -1].astype(np.int64)
+    X_np, y_np = load_dataset_from_csv(data_path)
+    X_np = X_np.astype(np.float32)
+    y_np = y_np.astype(np.int64)
     
     input_dim = X_np.shape[1]
     

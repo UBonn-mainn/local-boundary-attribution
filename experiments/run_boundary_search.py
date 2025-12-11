@@ -9,6 +9,7 @@ from tqdm import tqdm
 from models.load_model import load_model
 from boundary_search.fgsm import fgsm_boundary_search
 from evaluation.visualize_decision_boundary import plot_decision_boundary
+from utils.dataset_utils import load_dataset_from_csv
 
 def main():
     parser = argparse.ArgumentParser(description="Run boundary search on a dataset.")
@@ -27,9 +28,7 @@ def main():
     
     # Load Data
     print(f"Loading data from {args.data_path}...")
-    data = np.loadtxt(args.data_path, delimiter=",", skiprows=1)
-    X = data[:, :-1].astype(np.float32)
-    y = data[:, -1].astype(np.float32)
+    X, y = load_dataset_from_csv(args.data_path)
     
     # Load Model
     print(f"Loading model from {args.model_path} ({args.model_type})...")

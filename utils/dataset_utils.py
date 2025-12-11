@@ -180,3 +180,63 @@ def plot_2d_dataset(
         plt.close()
 
     return plot_path
+
+
+def load_dataset_from_csv(csv_path: str | Path) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Load a dataset from a CSV file.
+    Assumes the last column is the target variable.
+
+    Parameters
+    ----------
+    csv_path : str or Path
+        Path to the CSV file.
+
+    Returns
+    -------
+    X : np.ndarray
+        Feature matrix.
+    y : np.ndarray
+        Label vector.
+    """
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Data file not found at {csv_path}")
+
+    # Load CSV using numpy, skipping header
+    data = np.loadtxt(csv_path, delimiter=",", skiprows=1)
+
+    # Split into X and y. Assumes last column is class.
+    X = data[:, :-1].astype(np.float32)
+    y = data[:, -1].astype(np.float32)
+
+    return X, y
+
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate linear separable dataset")
+    parser.add_argument("--n_samples", type=int, default=200, help="Number of samples per class")
+    parser.add_argument("--n_features", type=int, default=2, help="Number of features")
+    parser.add_argument("--out_dir", type=str, default=".", help="Output directory")
+    parser.add_argument("--no_plot", action="store_true", help="Disable plotting")
+    
+    args = parser.parse_args()
+    
+    print("Generating data...")
+    X, y = generate_linearly_separable_data(
+        n_samples_per_class=args.n_samples, 
+        n_features=args.n_features
+    )
+    
+    print("Saving data...")
+    csv_path = save_dataset_to_csv(X, y, out_dir=args.out_dir)
+    print(f"Data saved to: {csv_path}")
+    
+    if not args.no_plot and args.n_features == 2:
+        print("Plotting data...")
+        plot_path = plot_2d_dataset(X, y, out_dir=args.out_dir, show=True)
+        if plot_path:
+            print(f"Plot saved to: {plot_path}")
+
