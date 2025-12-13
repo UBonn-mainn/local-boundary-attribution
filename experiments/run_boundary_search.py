@@ -6,10 +6,10 @@ import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 
-from models.load_model import load_model
+from utils.data.load_model import load_model
 from boundary_search.fgsm import fgsm_boundary_search
 from evaluation.visualize_decision_boundary import plot_decision_boundary
-from utils.dataset_utils import load_dataset_from_csv
+from utils.data.dataset_utils import load_dataset_from_csv
 
 def main():
     parser = argparse.ArgumentParser(description="Run boundary search on a dataset.")

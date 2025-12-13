@@ -1,7 +1,6 @@
 
 import torch
-import numpy as np
-from models.load_model import load_model
+from utils.data.load_model import load_model
 from boundary_search.fgsm import fgsm_boundary_search
 
 def check_fgsm():

@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from pathlib import Path
-from models.load_model import LinearClassifier
-from utils.dataset_utils import load_dataset_from_csv
+from utils.data.load_model import LinearClassifier
+from utils.data.dataset_utils import load_dataset_from_csv
 
 def train(args):
     # Set seeds

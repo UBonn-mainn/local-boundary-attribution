@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 
 # --- IMPORT YOUR UTILS / BOUNDARY SEARCH ---
-from utils.dataset_utils import plot_2d_dataset
 from boundary_search.fgsm import fgsm_boundary_search
 
 

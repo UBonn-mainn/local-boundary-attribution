@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from pathlib import Path
-from models.load_model import SimpleClassifier
+from utils.data.load_model import SimpleClassifier
 
 def train(args):
     # Set seeds

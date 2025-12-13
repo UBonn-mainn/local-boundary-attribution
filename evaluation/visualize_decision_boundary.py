@@ -79,8 +79,8 @@ def plot_decision_boundary(
 
 if __name__ == "__main__":
     import argparse
-    from models.load_model import load_model
-    from utils.dataset_utils import load_dataset_from_csv
+    from utils.data.load_model import load_model
+    from utils.data.dataset_utils import load_dataset_from_csv
 
     parser = argparse.ArgumentParser(description="Visualize model decision boundary.")
     parser.add_argument("--data_path", type=str, required=True, help="Path to input CSV file")
