@@ -210,3 +210,4 @@ __marimo__/
 # Model checkpoints
 *.pth
 models/checkpoints/
+test/.pytest_cache
