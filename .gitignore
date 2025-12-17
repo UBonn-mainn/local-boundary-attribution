@@ -211,3 +211,5 @@ __marimo__/
 *.pth
 models/checkpoints/
 test/.pytest_cache
+.DS_Store
+experiments/.DS_Store

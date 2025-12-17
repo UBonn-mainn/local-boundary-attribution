@@ -12,7 +12,7 @@ def plot_decision_boundary(
     output_path: Optional[str] = None,
     resolution: int = 200,
     device: str = "cpu",
-    extra_scatter: Optional[Tuple[np.ndarray, str]] = None
+    extra_scatter = None
 ):
     """
     Plots the decision boundary of a PyTorch model for 2D data.

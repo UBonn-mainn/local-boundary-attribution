@@ -1,0 +1,10 @@
+metric,value
+success_rate,0.005
+mean_neutrality,0.0005397796630859375
+median_neutrality,0.0005397796630859375
+mean_proximity_l2,0.3719097822904587
+median_proximity_l2,0.3719097822904587
+flip_correct_rate,1.0
+stability_success_rate,0.0
+stability_mean_pairwise_dist,
+stability_std_to_mean,
