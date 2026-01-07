@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
@@ -10,10 +10,99 @@ import matplotlib.pyplot as plt
 
 @torch.no_grad()
 def _predict_label_np(model: torch.nn.Module, X: np.ndarray, device: torch.device) -> np.ndarray:
-    """Predict labels for X (N,d) -> (N,) as numpy."""
     x_t = torch.tensor(X, dtype=torch.float32, device=device)
     logits = model(x_t)
     return logits.argmax(dim=1).detach().cpu().numpy()
+
+
+def _try_get_linear_params(model: torch.nn.Module) -> Optional[Tuple[np.ndarray, float]]:
+    """
+    Try to extract (w, b) for a 2-class linear boundary w^T x + b = 0.
+
+    Supports:
+      - torch.nn.Linear directly
+      - wrappers that contain a `.linear` module
+    Returns None if not possible.
+    """
+    linear = None
+
+    if isinstance(model, torch.nn.Linear):
+        linear = model
+    elif hasattr(model, "linear") and isinstance(getattr(model, "linear"), torch.nn.Linear):
+        linear = getattr(model, "linear")
+
+    if linear is None:
+        return None
+
+    W = linear.weight.detach().cpu().numpy()
+    b = linear.bias.detach().cpu().numpy() if linear.bias is not None else np.zeros((W.shape[0],), dtype=np.float32)
+
+    # If multi-class, boundary depends on which classes. For visualization, we pick class0 vs class1 if available.
+    if W.shape[0] >= 2:
+        w = (W[1] - W[0]).astype(np.float32)
+        bb = float(b[1] - b[0])
+        return w, bb
+
+    # Binary with single logit: boundary at logit=0
+    if W.shape[0] == 1:
+        w = W[0].astype(np.float32)
+        bb = float(b[0])
+        return w, bb
+
+    return None
+
+
+def _fit_linear_surrogate_from_grid(
+    xx: np.ndarray,
+    yy: np.ndarray,
+    Z: np.ndarray,
+) -> Tuple[np.ndarray, float]:
+    """
+    Fit a linear separator w^T x + b = 0 from grid labels Z using least squares on {-1,+1}.
+    This is a *surrogate* when the model is not linear.
+    """
+    Xg = np.stack([xx.ravel(), yy.ravel()], axis=1).astype(np.float32)  # (N,2)
+    y = Z.ravel().astype(np.int64)
+
+    # Map majority/minority into -1/+1 (works for 2-class; for multi-class, this becomes crude)
+    classes = np.unique(y)
+    if len(classes) < 2:
+        # degenerate
+        return np.array([1.0, 0.0], dtype=np.float32), 0.0
+
+    # choose two most frequent classes
+    counts = [(c, int((y == c).sum())) for c in classes]
+    counts.sort(key=lambda t: t[1], reverse=True)
+    c_pos, c_neg = counts[0][0], counts[1][0]
+
+    y_pm = np.where(y == c_pos, 1.0, -1.0).astype(np.float32)
+
+    # Solve [X, 1] theta ≈ y_pm
+    A = np.concatenate([Xg, np.ones((Xg.shape[0], 1), dtype=np.float32)], axis=1)  # (N,3)
+    theta, *_ = np.linalg.lstsq(A, y_pm, rcond=None)
+    w = theta[:2].astype(np.float32)
+    b = float(theta[2])
+    return w, b
+
+
+def _plot_linear_boundary(ax, w: np.ndarray, b: float, xlim: Tuple[float, float], ylim: Tuple[float, float], label: str):
+    """
+    Plot line w1*x + w2*y + b = 0 without specifying a color.
+    """
+    w1, w2 = float(w[0]), float(w[1])
+    xmin, xmax = xlim
+    ymin, ymax = ylim
+
+    # If w2 != 0, solve for y = -(w1*x + b)/w2
+    if abs(w2) > 1e-8:
+        xs = np.array([xmin, xmax], dtype=np.float32)
+        ys = -(w1 * xs + b) / w2
+        ax.plot(xs, ys, linestyle="--", linewidth=2.0, label=label)
+    else:
+        # vertical line x = -b / w1
+        if abs(w1) > 1e-8:
+            x0 = -b / w1
+            ax.plot([x0, x0], [ymin, ymax], linestyle="--", linewidth=2.0, label=label)
 
 
 def plot_2d_boundary_comparison(
@@ -28,12 +117,19 @@ def plot_2d_boundary_comparison(
     grid_res: int = 250,
     device: Optional[torch.device] = None,
     title: Optional[str] = None,
+    gs_radius: Optional[float] = None,
+    show_linear_boundary: bool = True,
+    show_gs_sphere: bool = True,
 ) -> None:
     """
-    Visualize model decision regions + x + FGSM/GS boundary points (2D only).
-    Saves a single PNG/PDF.
-
-    - No explicit colors: uses matplotlib defaults.
+    Visualize:
+      - model decision regions (filled)
+      - model contour
+      - point x
+      - FGSM boundary point
+      - GS boundary point
+      - NEW: linear decision boundary line (exact if available, else surrogate)
+      - NEW: GS sphere (circle) centered at x with radius=gs_radius
     """
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,9 +174,27 @@ def plot_2d_boundary_comparison(
     ax.contourf(xx, yy, Z, levels=len(np.unique(preds)) + 1, alpha=0.25)
     ax.contour(xx, yy, Z, levels=len(np.unique(preds)) + 1, linewidths=1.0)
 
+    # Optional training scatter
     if X_train is not None and y_train is not None and X_train.shape[1] == 2:
         ax.scatter(X_train[:, 0], X_train[:, 1], s=10, alpha=0.35)
 
+    # NEW: GS sphere (circle)
+    if show_gs_sphere and gs_radius is not None and np.isfinite(gs_radius) and gs_radius > 0:
+        circle = plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=2.0, label="GS sphere")
+        ax.add_patch(circle)
+
+    # NEW: linear boundary line
+    if show_linear_boundary:
+        params = _try_get_linear_params(model)
+        if params is not None:
+            w, b = params
+            _plot_linear_boundary(ax, w, b, xlim=(xmin, xmax), ylim=(ymin, ymax), label="Linear boundary (model)")
+        else:
+            # fallback: fit linear surrogate from grid predictions
+            w, b = _fit_linear_surrogate_from_grid(xx, yy, Z)
+            _plot_linear_boundary(ax, w, b, xlim=(xmin, xmax), ylim=(ymin, ymax), label="Linear boundary (surrogate)")
+
+    # Points + segments
     ax.scatter([x[0]], [x[1]], marker="o", s=90, label="x")
 
     if b_fgsm is not None:

@@ -4,10 +4,16 @@ from .decision_boundary_metrics import (
     stability_metric,
     flip_correctness_metric,
 )
+from .growing_spheres_oracle import GSOracleResult, GrowingSpheresOracle
 
 __all__ = [
     "neutrality_metric",
     "proximity_metric",
     "stability_metric",
     "flip_correctness_metric",
+    "GSOracleResult",
+    "GrowingSpheresOracle",
+    "growing_spheres_oracle",
 ]
+
+

@@ -1,6 +1,129 @@
+import logging
+from dataclasses import dataclass
+from typing import Optional, Tuple, Dict, Any
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-from typing import Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class BoundarySearchResult:
+    x_start: np.ndarray
+    x_boundary: np.ndarray
+    x_enemy: Optional[np.ndarray]
+    num_steps: int
+    success: bool
+    meta: Dict[str, Any]
+
+
+class FGSMBoundarySearch:
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        step_size: float = 0.01,
+        max_steps: int = 200,
+        boundary_bisect_steps: int = 25,
+        clamp: Optional[Tuple[float, float]] = None,
+        device: Optional[torch.device] = None,
+    ):
+        self.model = model
+        self.step_size = float(step_size)
+        self.max_steps = int(max_steps)
+        self.boundary_bisect_steps = int(boundary_bisect_steps)
+        self.clamp = clamp
+        self.device = device or torch.device("cpu")
+
+        self.model.to(self.device)
+        self.model.eval()
+
+        logger.debug(
+            "Initialized FGSMBoundarySearch(step_size=%s, max_steps=%s, bisect=%s, clamp=%s, device=%s)",
+            self.step_size, self.max_steps, self.boundary_bisect_steps, self.clamp, self.device
+        )
+
+    @torch.no_grad()
+    def _predict_class(self, x_b: torch.Tensor) -> int:
+        logits = self.model(x_b)
+        return int(torch.argmax(logits, dim=-1).item())
+
+    def _label(self, x_np: np.ndarray) -> int:
+        x_t = torch.tensor(x_np, dtype=torch.float32, device=self.device).unsqueeze(0)
+        return self._predict_class(x_t)
+
+    def _bisect_to_boundary(self, x0: np.ndarray, x1: np.ndarray, y0: int) -> np.ndarray:
+        lo, hi = x0.copy(), x1.copy()
+        for k in range(self.boundary_bisect_steps):
+            mid = 0.5 * (lo + hi)
+            if self._label(mid) == y0:
+                lo = mid
+            else:
+                hi = mid
+            logger.debug("FGSM bisection step %d/%d", k + 1, self.boundary_bisect_steps)
+        return 0.5 * (lo + hi)
+
+    def search(self, x: np.ndarray, y: Optional[int] = None) -> BoundarySearchResult:
+        x = np.asarray(x, dtype=np.float32)
+        y0 = int(y) if y is not None else self._label(x)
+
+        logger.debug("FGSM search start (y0=%s, dim=%s)", y0, x.shape)
+
+        x_t = torch.tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
+        x_adv = x_t.clone().detach().requires_grad_(True)
+
+        success = False
+        x_enemy_np = None
+        steps_taken = 0
+
+        for step in range(self.max_steps):
+            steps_taken = step + 1
+            logits = self.model(x_adv)
+            loss = F.cross_entropy(logits, torch.tensor([y0], device=self.device))
+
+            self.model.zero_grad(set_to_none=True)
+            if x_adv.grad is not None:
+                x_adv.grad.zero_()
+            loss.backward()
+
+            with torch.no_grad():
+                x_next = x_adv + self.step_size * x_adv.grad.sign()
+                if self.clamp is not None:
+                    lo, hi = self.clamp
+                    x_next = torch.clamp(x_next, lo, hi)
+
+            y_next = self._predict_class(x_next)
+            logger.debug("FGSM iter %d/%d: pred=%s loss=%.6f", steps_taken, self.max_steps, y_next, float(loss.item()))
+
+            if y_next != y0:
+                success = True
+                x_enemy_np = x_next.detach().squeeze(0).cpu().numpy()
+                logger.info("FGSM boundary crossed at iter %d (y0=%s -> y=%s)", steps_taken, y0, y_next)
+                break
+
+            x_adv = x_next.detach().requires_grad_(True)
+
+        if not success:
+            logger.warning("FGSM failed to cross boundary (max_steps=%d, y0=%s)", self.max_steps, y0)
+            x_boundary = x.copy()
+        else:
+            x_boundary = self._bisect_to_boundary(x, x_enemy_np, y0)
+            logger.info("FGSM boundary refined with %d bisection steps", self.boundary_bisect_steps)
+
+        return BoundarySearchResult(
+            x_start=x,
+            x_boundary=x_boundary,
+            x_enemy=x_enemy_np,
+            num_steps=steps_taken,
+            success=success,
+            meta={
+                "method": "fgsm",
+                "step_size": self.step_size,
+                "max_steps": self.max_steps,
+                "bisect_steps": self.boundary_bisect_steps,
+                "clamp": self.clamp,
+            },
+        )
 
 
 @torch.no_grad()
