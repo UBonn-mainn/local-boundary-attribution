@@ -1,0 +1,6 @@
+numpy<2.0
+matplotlib
+pandas
+tqdm
+mkl
+mkl-service

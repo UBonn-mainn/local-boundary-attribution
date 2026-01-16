@@ -105,7 +105,18 @@ Use the notebooks in `notebooks/`.
 ```bash
 git clone https://github.com/UBonn-mainn/local-boundary-attribution.git
 cd local-boundary-attribution
+
+# Recommended: Conda Setup
+conda create -n boundary_attribution python=3.10
+conda activate boundary_attribution
+
+# Install dependencies via Conda
+conda install --file conda-requirements.txt -y
+conda install pytorch torchvision -c pytorch -y
+
+# Install remaining packages
 pip install -r requirements.txt
+
 ```
 
 ## 📚 References

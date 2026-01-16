@@ -1,3 +1,9 @@
 numpy
 matplotlib
 torch
+pandas
+# the following are needed for windows to run torch
+tqdm        
+mkl 
+intel-openmp 
+mkl_fft

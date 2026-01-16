@@ -8,6 +8,9 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from boundary_search.fgsm import fgsm_boundary_search
+from boundary_search.ibs import ibs_boundary_search
+from boundary_search.hybrid import HybridFGSMIBS
+from boundary_search.boundary_walker import BoundaryCrawler
 from boundary_search.growing_spheres import (
     growing_spheres_search,
     optimize_proximity_with_growing_spheres,
@@ -33,8 +36,20 @@ def main():
         "--method",
         type=str,
         default="fgsm",
-        choices=["growing_spheres", "fgsm"],
+        choices=["growing_spheres", "fgsm", "ibs", "fgsm_ibs", "crawler"],
         help="Boundary search method to use (default: FGSM)",
+    )
+    parser.add_argument("--ibs_candidates", type=int, default=10, help="Number of candidates for IBS")
+    parser.add_argument("--ibs_max_iter", type=int, default=50, help="Max iterations for IBS binary search")
+    parser.add_argument("--crawler_samples", type=int, default=10, help="Samples per crawler ring")
+    parser.add_argument("--crawler_iter", type=int, default=10, help="Max crawler iterations")
+    parser.add_argument("--crawler_step", type=float, default=0.05, help="Crawler ring radius")
+    parser.add_argument(
+        "--crawler_mode", 
+        type=str, 
+        default="random", 
+        choices=["random", "gradient"],
+        help="Crawler mode: 'random' ring or 'gradient' projection"
     )
     parser.add_argument("--step_size", type=float, default=0.01, help="FGSM step size")
     parser.add_argument("--max_iters", type=int, default=50, help="FGSM max iterations")
@@ -77,10 +92,78 @@ def main():
                 initial_radius=args.gs_initial_radius,
                 step_radius=args.gs_step_radius,
                 max_radius=args.gs_max_radius,
-                n_samples=args.gs_samples,
                 clamp=None,
                 refine_steps=12,
             )
+        elif args.method == "ibs":
+            # IBS expects numpy input
+            x_np = x_input.detach().cpu().numpy()
+            b_point_np, success = ibs_boundary_search(
+                model=model,
+                x=x_np,
+                X_train=X,
+                y_train=y,
+                num_candidates=args.ibs_candidates
+            )
+            b_point = torch.from_numpy(b_point_np).to(device)
+            
+        elif args.method == "fgsm_ibs":
+            # Hybrid FGSM+IBS
+            x_np = x_input.detach().cpu().numpy()
+            
+            fgsm_params = {
+                "step_size": args.step_size,
+                "max_steps": args.max_iters,
+                "clamp": None, # Synthetic data
+            }
+            ibs_params = {
+                "num_candidates": args.ibs_candidates,
+                "max_iterations": args.ibs_max_iter,
+            }
+            
+            searcher = HybridFGSMIBS(
+                model=model,
+                X_train=X,
+                y_train=y,
+                device=device,
+                fgsm_params=fgsm_params,
+                ibs_params=ibs_params
+            )
+            
+            res = searcher.search(x_np)
+            b_point = torch.from_numpy(res.x_boundary).to(device)
+            success = res.success
+            
+        elif args.method == "crawler":
+            # Boundary Crawler
+            x_np = x_input.detach().cpu().numpy()
+            
+            # FGSM params for initialization
+            fgsm_params = {
+                "step_size": args.step_size,
+                "max_steps": args.max_iters,
+                "clamp": None
+            }
+            # Crawler params
+            crawl_params = {
+                "mode": args.crawler_mode,
+                "max_iterations": args.crawler_iter,
+                "num_samples": args.crawler_samples,
+                "step_size": args.crawler_step,
+                "bisection_steps": 10
+            }
+            
+            crawler = BoundaryCrawler(
+                model=model,
+                device=device,
+                fgsm_params=fgsm_params,
+                crawl_params=crawl_params
+            )
+            
+            res = crawler.search(x_np)
+            b_point = torch.from_numpy(res.x_boundary).to(device)
+            success = res.success
+            
         else:
             # Note: clamp is None for this synthetic data, but typically (0,1) for images
             b_point, success = fgsm_boundary_search(
