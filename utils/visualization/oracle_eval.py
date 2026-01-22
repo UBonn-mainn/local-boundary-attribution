@@ -117,19 +117,23 @@ def plot_2d_boundary_comparison(
     grid_res: int = 250,
     device: Optional[torch.device] = None,
     title: Optional[str] = None,
+    # circles
     gs_radius: Optional[float] = None,
-    show_linear_boundary: bool = True,
     show_gs_sphere: bool = True,
+    fgsm_circle: bool = True,
+    fgsm_circle_radius: Optional[float] = None,
+    # boundary
+    show_linear_boundary: bool = True,
 ) -> None:
     """
     Visualize:
-      - model decision regions (filled)
-      - model contour
+      - model decision regions + contour
       - point x
-      - FGSM boundary point
-      - GS boundary point
-      - NEW: linear decision boundary line (exact if available, else surrogate)
-      - NEW: GS sphere (circle) centered at x with radius=gs_radius
+      - FGSM boundary point and segment x->b_fgsm
+      - GS boundary point and segment x->b_gs
+      - GS sphere (circle) centered at x with radius=gs_radius (optional)
+      - FGSM circle centered at x with radius=||x-b_fgsm|| (optional, ensures b_fgsm lies on circle)
+      - linear decision boundary line (exact if available, else surrogate) (optional)
     """
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -141,27 +145,50 @@ def plot_2d_boundary_comparison(
     if x.shape[0] != 2:
         raise ValueError("plot_2d_boundary_comparison requires 2D inputs.")
 
-    points = [x]
-    if b_fgsm is not None:
-        points.append(np.asarray(b_fgsm, dtype=np.float32).reshape(-1))
-    if b_gs is not None:
-        points.append(np.asarray(b_gs, dtype=np.float32).reshape(-1))
-    points = np.stack(points, axis=0)
+    # Convert boundary points
+    bf = None if b_fgsm is None else np.asarray(b_fgsm, dtype=np.float32).reshape(-1)
+    bg = None if b_gs is None else np.asarray(b_gs, dtype=np.float32).reshape(-1)
+
+    # FGSM circle radius (default: ||x-b_fgsm||)
+    r_fgsm = None
+    if fgsm_circle:
+        if fgsm_circle_radius is not None:
+            r_fgsm = float(fgsm_circle_radius)
+        elif bf is not None:
+            r_fgsm = float(np.linalg.norm(bf - x))
+
+    # Determine plot bounds (include circles so they don't get clipped)
+    pts = [x]
+    if bf is not None:
+        pts.append(bf)
+    if bg is not None:
+        pts.append(bg)
+    pts = np.stack(pts, axis=0)
 
     if X_train is not None and X_train.shape[1] == 2:
         xmin, ymin = X_train.min(axis=0)
         xmax, ymax = X_train.max(axis=0)
     else:
-        xmin, ymin = points.min(axis=0)
-        xmax, ymax = points.max(axis=0)
+        xmin, ymin = pts.min(axis=0)
+        xmax, ymax = pts.max(axis=0)
+
+    # Expand bounds to include circles
+    extra_r = 0.0
+    if show_gs_sphere and gs_radius is not None and np.isfinite(gs_radius) and gs_radius > 0:
+        extra_r = max(extra_r, float(gs_radius))
+    if fgsm_circle and r_fgsm is not None and np.isfinite(r_fgsm) and r_fgsm > 0:
+        extra_r = max(extra_r, float(r_fgsm))
 
     dx = (xmax - xmin) if xmax > xmin else 1.0
     dy = (ymax - ymin) if ymax > ymin else 1.0
-    xmin -= padding * dx
-    xmax += padding * dx
-    ymin -= padding * dy
-    ymax += padding * dy
 
+    # base padding plus circle padding
+    xmin = min(xmin - padding * dx, x[0] - extra_r * (1.0 + padding))
+    xmax = max(xmax + padding * dx, x[0] + extra_r * (1.0 + padding))
+    ymin = min(ymin - padding * dy, x[1] - extra_r * (1.0 + padding))
+    ymax = max(ymax + padding * dy, x[1] + extra_r * (1.0 + padding))
+
+    # Decision grid
     xs = np.linspace(xmin, xmax, grid_res)
     ys = np.linspace(ymin, ymax, grid_res)
     xx, yy = np.meshgrid(xs, ys)
@@ -178,34 +205,38 @@ def plot_2d_boundary_comparison(
     if X_train is not None and y_train is not None and X_train.shape[1] == 2:
         ax.scatter(X_train[:, 0], X_train[:, 1], s=10, alpha=0.35)
 
-    # NEW: GS sphere (circle)
+    # GS sphere (circle)
     if show_gs_sphere and gs_radius is not None and np.isfinite(gs_radius) and gs_radius > 0:
-        circle = plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=2.0, label="GS sphere")
-        ax.add_patch(circle)
+        ax.add_patch(
+            plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=2.0, label="GS sphere")
+        )
 
-    # NEW: linear boundary line
+    # FGSM circle centered at x and passing through b_fgsm
+    if fgsm_circle and r_fgsm is not None and np.isfinite(r_fgsm) and r_fgsm > 0:
+        ax.add_patch(
+            plt.Circle((x[0], x[1]), float(r_fgsm), fill=False, linewidth=2.0, label="FGSM circle (|x-b_fgsm|)")
+        )
+
+    # Linear decision boundary (exact if possible else surrogate)
     if show_linear_boundary:
         params = _try_get_linear_params(model)
         if params is not None:
             w, b = params
             _plot_linear_boundary(ax, w, b, xlim=(xmin, xmax), ylim=(ymin, ymax), label="Linear boundary (model)")
         else:
-            # fallback: fit linear surrogate from grid predictions
             w, b = _fit_linear_surrogate_from_grid(xx, yy, Z)
             _plot_linear_boundary(ax, w, b, xlim=(xmin, xmax), ylim=(ymin, ymax), label="Linear boundary (surrogate)")
 
     # Points + segments
     ax.scatter([x[0]], [x[1]], marker="o", s=90, label="x")
 
-    if b_fgsm is not None:
-        b_fgsm = np.asarray(b_fgsm, dtype=np.float32).reshape(-1)
-        ax.scatter([b_fgsm[0]], [b_fgsm[1]], marker="x", s=120, label="FGSM boundary")
-        ax.plot([x[0], b_fgsm[0]], [x[1], b_fgsm[1]], linewidth=1.5)
+    if bf is not None:
+        ax.scatter([bf[0]], [bf[1]], marker="x", s=120, label="FGSM boundary")
+        ax.plot([x[0], bf[0]], [x[1], bf[1]], linewidth=1.5)
 
-    if b_gs is not None:
-        b_gs = np.asarray(b_gs, dtype=np.float32).reshape(-1)
-        ax.scatter([b_gs[0]], [b_gs[1]], marker="+", s=160, label="GS oracle boundary")
-        ax.plot([x[0], b_gs[0]], [x[1], b_gs[1]], linewidth=1.5)
+    if bg is not None:
+        ax.scatter([bg[0]], [bg[1]], marker="+", s=160, label="GS oracle boundary")
+        ax.plot([x[0], bg[0]], [x[1], bg[1]], linewidth=1.5)
 
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)

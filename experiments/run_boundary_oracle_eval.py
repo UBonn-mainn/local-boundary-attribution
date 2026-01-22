@@ -12,6 +12,14 @@ import torch
 from boundary_search.fgsm import FGSMBoundarySearch
 from evaluation.growing_spheres_oracle import GrowingSpheresOracle
 from evaluation.area_compare import compute_area_fgsm_vs_gs
+from evaluation.angle_metrics import angle_at_x_degrees
+
+# NEW: curve + circle area (global FGSM boundary curve + per-x circle)
+from evaluation.curve_circle_area import (
+    order_boundary_points_by_pca,
+    curve_circle_enclosed_area,
+)
+from evaluation.ring_counts import count_classes_in_ring
 
 from utils.data.dataset_utils import load_dataset_from_csv
 from utils.data.load_model import load_model
@@ -46,15 +54,19 @@ def main():
     parser.add_argument("--vis_dir", type=str, default="results/eval/vis")
     parser.add_argument("--vis_points", type=int, default=200, help="How many per-point plots to save (2D only).")
 
-    # Area comparison
+    # Area comparison (FGSM vs GS induced hyperplanes inside GS ball)
     parser.add_argument("--area_samples", type=int, default=4000, help="Monte Carlo samples inside GS ball.")
 
-    # FGSM params (defaults tuned for your linearly separable 2D data)
+    # Curve-vs-circle area (global FGSM curve + per-x circle)
+    parser.add_argument("--curve_arc_resolution", type=int, default=200, help="Number of points to discretize the circle arc.")
+    parser.add_argument("--curve_use_shorter_arc", action="store_true", help="Use the shorter of the two circle arcs (recommended).")
+
+    # FGSM params
     parser.add_argument("--fgsm_step", type=float, default=0.1)
     parser.add_argument("--fgsm_max_steps", type=int, default=80)
     parser.add_argument("--fgsm_bisect_steps", type=int, default=20)
 
-    # GS oracle params (defaults tuned for your linearly separable 2D data)
+    # GS oracle params
     parser.add_argument("--gs_dirs", type=int, default=128)
     parser.add_argument("--gs_r_init", type=float, default=0.1)
     parser.add_argument("--gs_r_step", type=float, default=0.01)
@@ -69,6 +81,9 @@ def main():
 
     # ---------------- Load data + model ----------------
     X, y = load_dataset_from_csv(args.data_path)  # X: (N,d), y: (N,)
+    X = np.asarray(X, dtype=np.float32)
+    y = np.asarray(y)
+
     model = load_model(args.model_path, model_type=args.model_type)
     model = model.to(device)
     model.eval()
@@ -99,23 +114,32 @@ def main():
     Path(args.save_path).parent.mkdir(parents=True, exist_ok=True)
     Path(args.vis_dir).mkdir(parents=True, exist_ok=True)
 
-    # ---------------- Eval loop ----------------
+    # ---------------- Pass 1: run FGSM/GS and collect results ----------------
     n = min(len(X), args.max_points)
-    rows: List[Dict[str, Any]] = []
-
     logger.info("Evaluating %d points", n)
+
+    # Store per-point info for a second pass (curve-based area requires global curve)
+    per_point: List[Dict[str, Any]] = []
+    all_fgsm_boundary_points: List[np.ndarray] = []
 
     for i in range(n):
         x_i = np.asarray(X[i], dtype=np.float32)
         y_i = int(y[i])
 
-        # 1) FGSM boundary point (includes refinement via bisection)
-        fgsm_res = fgsm.search(x_i, y=y_i)
-
-        # 2) GS boundary point + radius (oracle)
+        fgsm_res = fgsm.search(x_i, y=y_i)              # includes refinement (bisection)
         gs_res = gs_oracle.find_boundary(x_i, y=y_i)
 
-        # 3) Areas (FGSM vs GS) inside GS ball + compare
+        # Collect FGSM boundary points for building a global curve (only if success)
+        if fgsm_res.success:
+            all_fgsm_boundary_points.append(np.asarray(fgsm_res.x_boundary, dtype=np.float32))
+
+        # Angle metric
+        if fgsm_res.success and gs_res.success:
+            angle_deg = angle_at_x_degrees(x_i, fgsm_res.x_boundary, gs_res.x_boundary)
+        else:
+            angle_deg = np.nan
+
+        # Area metrics: FGSM vs GS induced hyperplanes inside GS ball
         if fgsm_res.success and gs_res.success and np.isfinite(gs_res.radius_found) and gs_res.radius_found > 0:
             area_cmp = compute_area_fgsm_vs_gs(
                 model=model,
@@ -129,48 +153,152 @@ def main():
         else:
             area_cmp = {"area_fgsm": np.nan, "area_gs": np.nan, "area_disagreement": np.nan}
 
+        if fgsm_res.success and gs_res.success and np.isfinite(gs_res.radius_found) and gs_res.radius_found > 0:
+            ring = count_classes_in_ring(
+                x=x_i,
+                b_fgsm=fgsm_res.x_boundary,
+                r_gs=float(gs_res.radius_found),
+                X_ref=X,  # use your dataset points as the reference set
+                y_ref=y,  # counts by dataset labels
+                model=model,  # counts by model predictions too (optional)
+                device=device,
+            )
+        else:
+            ring = {"ring_n": 0, "ring_r_min": np.nan, "ring_r_max": np.nan}
+
+        per_point.append(
+            {
+                "idx": i,
+                "x": x_i,  # keep for pass 2
+                "y": y_i,
+
+                "fgsm_success": bool(fgsm_res.success),
+                "fgsm_steps": int(fgsm_res.num_steps),
+                "b_fgsm": np.asarray(fgsm_res.x_boundary, dtype=np.float32),
+
+                "gs_success": bool(gs_res.success),
+                "b_gs": np.asarray(gs_res.x_boundary, dtype=np.float32),
+                "gs_radius_found": float(gs_res.radius_found),
+
+                "angle_x_fgsm_gs_deg": float(angle_deg),
+
+                "dist_x_to_fgsm_boundary": l2(x_i, fgsm_res.x_boundary),
+                "dist_x_to_gs_boundary": l2(x_i, gs_res.x_boundary),
+                "dist_fgsm_boundary_to_gs_boundary": l2(fgsm_res.x_boundary, gs_res.x_boundary),
+
+                "area_fgsm": float(area_cmp["area_fgsm"]),
+                "area_gs": float(area_cmp["area_gs"]),
+                "area_disagreement": float(area_cmp["area_disagreement"]),
+
+                "ring_n": ring.get("ring_n", 0),
+                "ring_r_min": ring.get("ring_r_min", np.nan),
+                "ring_r_max": ring.get("ring_r_max", np.nan),
+
+                "ring_count_y0": ring.get("ring_count_y0", 0),
+                "ring_count_y1": ring.get("ring_count_y1", 0),
+
+                "ring_count_pred0": ring.get("ring_count_pred0", 0),
+                "ring_count_pred1": ring.get("ring_count_pred1", 0),
+            }
+        )
+
+        if (i + 1) % 25 == 0:
+            logger.info("Processed %d/%d points", i + 1, n)
+
+    # ---------------- Build a global curve from all FGSM boundary points (2D only) ----------------
+    curve = None
+    if X.shape[1] == 2 and len(all_fgsm_boundary_points) >= 3:
+        B_all = np.stack(all_fgsm_boundary_points, axis=0)  # (M,2)
+        curve = order_boundary_points_by_pca(B_all)         # (M,2) ordered polyline
+        logger.info("Built global FGSM boundary curve with %d points", curve.shape[0])
+    else:
+        logger.warning(
+            "Skipping curve-based area: need 2D data and at least 3 successful FGSM boundary points. "
+            "Got dim=%s and %d FGSM boundary points.",
+            X.shape[1], len(all_fgsm_boundary_points)
+        )
+
+    # ---------------- Pass 2: compute curve-circle area per point ----------------
+    rows: List[Dict[str, Any]] = []
+
+    for d in per_point:
+        x_i = d["x"]
+        bf = d["b_fgsm"]
+
+        if curve is not None and d["fgsm_success"]:
+            # Area enclosed by (boundary curve segment inside circle) + (circle arc)
+            # circle center = x_i, radius = ||bf - x_i||
+            curve_circle_area = curve_circle_enclosed_area(
+                curve=curve,
+                x=x_i,
+                b_fgsm_x=bf,
+                arc_resolution=args.curve_arc_resolution,
+                use_shorter_arc=args.curve_use_shorter_arc or True,  # default to True behavior
+            )
+        else:
+            curve_circle_area = -1
+
         row = {
-            "idx": i,
-            "y": y_i,
-            "fgsm_success": bool(fgsm_res.success),
-            "gs_success": bool(gs_res.success),
-            "fgsm_steps": int(fgsm_res.num_steps),
-            "gs_radius_found": float(gs_res.radius_found),
+            "idx": d["idx"],
+            "y": d["y"],
 
-            "dist_x_to_fgsm_boundary": l2(x_i, fgsm_res.x_boundary),
-            "dist_x_to_gs_boundary": l2(x_i, gs_res.x_boundary),
-            "dist_fgsm_boundary_to_gs_boundary": l2(fgsm_res.x_boundary, gs_res.x_boundary),
+            "fgsm_success": d["fgsm_success"],
+            "gs_success": d["gs_success"],
+            "fgsm_steps": d["fgsm_steps"],
+            "gs_radius_found": d["gs_radius_found"],
 
-            # area metrics (NEW)
-            "area_fgsm": area_cmp["area_fgsm"],
-            "area_gs": area_cmp["area_gs"],
-            "area_disagreement": area_cmp["area_disagreement"],
+            "dist_x_to_fgsm_boundary": d["dist_x_to_fgsm_boundary"],
+            "dist_x_to_gs_boundary": d["dist_x_to_gs_boundary"],
+            "dist_fgsm_boundary_to_gs_boundary": d["dist_fgsm_boundary_to_gs_boundary"],
+
+            "angle_x_fgsm_gs_deg": d["angle_x_fgsm_gs_deg"],
+
+            "area_fgsm": d["area_fgsm"],
+            "area_gs": d["area_gs"],
+            "area_disagreement": d["area_disagreement"],
+
+            # NEW: global-curve vs per-x circle area
+            "curve_circle_area": float(curve_circle_area),
+
+            "ring_n": d["ring_n"],
+            "ring_r_min": d["ring_r_min"],
+            "ring_r_max": d["ring_r_max"],
+
+            "ring_count_y0": d["ring_count_y0"],
+            "ring_count_y1": d["ring_count_y1"],
+
+            "ring_count_pred0": d["ring_count_pred0"],
+            "ring_count_pred1": d["ring_count_pred1"],
         }
         rows.append(row)
 
-        # 4) Visualization (2D only)
+        # Visualization (2D only)
+        i = d["idx"]
         if X.shape[1] == 2 and i < args.vis_points:
             out_path = Path(args.vis_dir) / f"pt_{i:04d}.png"
+            title = (
+                f"idx={i} | fgsm={d['fgsm_success']} | gs={d['gs_success']} | "
+                f"angle={row['angle_x_fgsm_gs_deg']:.1f}° | "
+                f"AΔ={row['area_disagreement']:.3f} | "
+                f"curve∩circle area={row['curve_circle_area']:.3f}"
+                if np.isfinite(row["angle_x_fgsm_gs_deg"]) and np.isfinite(row["area_disagreement"])
+                else f"idx={i} | fgsm={d['fgsm_success']} | gs={d['gs_success']}"
+            )
+
             plot_2d_boundary_comparison(
                 model=model,
                 x=x_i,
-                b_fgsm=fgsm_res.x_boundary if fgsm_res.success else None,
-                b_gs=gs_res.x_boundary if gs_res.success else None,
-                gs_radius=gs_res.radius_found if gs_res.success else None,
+                b_fgsm=d["b_fgsm"] if d["fgsm_success"] else None,
+                b_gs=d["b_gs"] if d["gs_success"] else None,
+                gs_radius=d["gs_radius_found"] if d["gs_success"] else None,
                 save_path=out_path,
                 X_train=X,
                 y_train=y,
                 device=device,
-                title=(
-                    f"idx={i} | fgsm={fgsm_res.success} | gs={gs_res.success} | "
-                    f"A_f={row['area_fgsm']:.3f} | A_g={row['area_gs']:.3f} | A_Δ={row['area_disagreement']:.3f}"
-                    if np.isfinite(row["area_disagreement"])
-                    else f"idx={i} | fgsm={fgsm_res.success} | gs={gs_res.success}"
-                ),
+                title=title,
+                # This will draw a circle centered at x with radius ||x-b_fgsm||:
+                fgsm_circle=True,
             )
-
-        if (i + 1) % 25 == 0:
-            logger.info("Processed %d/%d points", i + 1, n)
 
     # ---------------- Save report ----------------
     df = pd.DataFrame(rows)
@@ -179,7 +307,7 @@ def main():
     logger.info("Saved report CSV: %s", args.save_path)
     logger.info("Summary:\n%s", df.describe(include="all"))
 
-    # Summary histograms
+    # Summary histograms (distances + any numeric cols you already plot)
     plot_distance_summaries(df, save_dir=args.vis_dir, prefix="fgsm_vs_gs")
     logger.info("Visualizations saved to: %s", args.vis_dir)
 
