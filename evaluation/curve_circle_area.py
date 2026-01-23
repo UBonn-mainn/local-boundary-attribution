@@ -4,6 +4,50 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, List
 
 import numpy as np
+import torch
+
+@torch.no_grad()
+def _predict_label_np(model, X: np.ndarray, device: torch.device) -> np.ndarray:
+    xt = torch.tensor(X, dtype=torch.float32, device=device)
+    return model(xt).argmax(dim=1).detach().cpu().numpy()
+
+
+def _sample_uniform_disk(center: np.ndarray, radius: float, n: int, rng: np.random.Generator):
+    # Uniform in disk: r = R*sqrt(u), theta = 2pi v
+    u = rng.random(n)
+    v = rng.random(n)
+    rr = radius * np.sqrt(u)
+    th = 2.0 * np.pi * v
+    pts = np.stack([rr * np.cos(th), rr * np.sin(th)], axis=1)
+    return pts + center.reshape(1, 2)
+
+
+def cal_curve_circle_area(
+        model: torch.nn.Module,
+        x: np.ndarray,
+        radius: float,
+        device: torch.device,
+        n_samples: int = 20000,
+        seed: int = 0,
+):
+    """
+    Area inside FGSM disk that is classified differently than class(model(x)).
+    Returns (area_red, frac_red).
+    """
+    x = np.asarray(x, dtype=np.float32).reshape(2, )
+    r = float(radius)
+    if not np.isfinite(r) or r <= 1e-12:
+        return {"curve_circle_area": np.nan, "curve_circle_frac": np.nan}
+
+    rng = np.random.default_rng(seed)
+    cx = int(_predict_label_np(model, x.reshape(1, 2), device=device)[0])
+
+    pts = _sample_uniform_disk(x, r, n_samples, rng)
+    lab = _predict_label_np(model, pts, device=device)
+
+    curve_circle_frac = float(np.mean(lab != cx))
+    curve_circle_area = float(np.pi * r * r * curve_circle_frac)
+    return {"curve_circle_area": curve_circle_area, "curve_circle_frac": curve_circle_frac}
 
 
 # ----------------------- Helpers: ordering boundary points into a curve -----------------------
@@ -35,12 +79,13 @@ def order_boundary_points_by_pca(points: np.ndarray) -> np.ndarray:
 
 @dataclass
 class Intersection:
-    seg_idx: int          # segment index i for segment P[i] -> P[i+1]
-    t: float              # param along segment in [0,1]
-    point: np.ndarray     # (2,)
+    seg_idx: int  # segment index i for segment P[i] -> P[i+1]
+    t: float  # param along segment in [0,1]
+    point: np.ndarray  # (2,)
 
 
-def _segment_circle_intersections(p0: np.ndarray, p1: np.ndarray, c: np.ndarray, r: float) -> List[Tuple[float, np.ndarray]]:
+def _segment_circle_intersections(p0: np.ndarray, p1: np.ndarray, c: np.ndarray, r: float) -> List[
+    Tuple[float, np.ndarray]]:
     """
     Return intersections between segment p0->p1 and circle centered at c with radius r.
     Returns list of (t, point) with t in [0,1].
@@ -74,7 +119,7 @@ def find_polyline_circle_intersections(poly: np.ndarray, c: np.ndarray, r: float
     Returns all intersections with segments poly[i]->poly[i+1].
     """
     P = np.asarray(poly, dtype=np.float64)
-    c = np.asarray(c, dtype=np.float64).reshape(2,)
+    c = np.asarray(c, dtype=np.float64).reshape(2, )
     r = float(r)
 
     inters: List[Intersection] = []
@@ -98,13 +143,14 @@ def _shoelace_area(poly: np.ndarray) -> float:
     return 0.5 * abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
 
 
-def _circle_arc_points(c: np.ndarray, r: float, p_start: np.ndarray, p_end: np.ndarray, n: int = 200, use_shorter_arc: bool = True) -> np.ndarray:
+def _circle_arc_points(c: np.ndarray, r: float, p_start: np.ndarray, p_end: np.ndarray, n: int = 200,
+                       use_shorter_arc: bool = True) -> np.ndarray:
     """
     Points along circle arc from p_start to p_end (both on circle), around center c.
     """
-    c = np.asarray(c, dtype=np.float64).reshape(2,)
-    p_start = np.asarray(p_start, dtype=np.float64).reshape(2,)
-    p_end = np.asarray(p_end, dtype=np.float64).reshape(2,)
+    c = np.asarray(c, dtype=np.float64).reshape(2, )
+    p_start = np.asarray(p_start, dtype=np.float64).reshape(2, )
+    p_end = np.asarray(p_end, dtype=np.float64).reshape(2, )
     r = float(r)
 
     a0 = np.arctan2(p_start[1] - c[1], p_start[0] - c[0])
@@ -127,11 +173,11 @@ def _circle_arc_points(c: np.ndarray, r: float, p_start: np.ndarray, p_end: np.n
 
 
 def curve_circle_enclosed_area(
-    curve: np.ndarray,
-    x: np.ndarray,
-    b_fgsm_x: np.ndarray,
-    arc_resolution: int = 200,
-    use_shorter_arc: bool = True,
+        curve: np.ndarray,
+        x: np.ndarray,
+        b_fgsm_x: np.ndarray,
+        arc_resolution: int = 200,
+        use_shorter_arc: bool = True,
 ) -> float:
     """
     Compute the area enclosed by:
@@ -143,8 +189,8 @@ def curve_circle_enclosed_area(
     Assumes curve is an ordered open polyline (M,2).
     """
     curve = np.asarray(curve, dtype=np.float64)
-    x = np.asarray(x, dtype=np.float64).reshape(2,)
-    b_fgsm_x = np.asarray(b_fgsm_x, dtype=np.float64).reshape(2,)
+    x = np.asarray(x, dtype=np.float64).reshape(2, )
+    b_fgsm_x = np.asarray(b_fgsm_x, dtype=np.float64).reshape(2, )
 
     r = float(np.linalg.norm(b_fgsm_x - x))
     if not np.isfinite(r) or r <= 1e-12:
