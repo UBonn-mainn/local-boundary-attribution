@@ -34,7 +34,7 @@ class LinearClassifier(nn.Module):
         return self.fc(x)
 
 
-def load_model(model_path: str, input_dim: int = 2, model_type: str = "mlp") -> nn.Module:
+def load_model(model_path: str, input_dim: int = 2, model_type: str = "mlp", num_classes: int = 2) -> nn.Module:
     """
     Load a trained classifier from disk.
     
@@ -42,6 +42,7 @@ def load_model(model_path: str, input_dim: int = 2, model_type: str = "mlp") -> 
         model_path: Path to the .pth checkpoint.
         input_dim: Input dimension of the data (default 2).
         model_type: "mlp" or "linear".
+        num_classes: Number of output classes (default 2).
         
     Returns:
         The loaded model in eval mode.
@@ -49,9 +50,9 @@ def load_model(model_path: str, input_dim: int = 2, model_type: str = "mlp") -> 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     if model_type == "mlp":
-        model = SimpleClassifier(input_dim=input_dim)
+        model = SimpleClassifier(input_dim=input_dim, num_classes=num_classes)
     elif model_type == "linear":
-        model = LinearClassifier(input_dim=input_dim)
+        model = LinearClassifier(input_dim=input_dim, num_classes=num_classes)
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
     

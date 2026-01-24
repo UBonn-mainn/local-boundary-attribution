@@ -14,6 +14,7 @@ def train_model_memory(
     X_train: np.ndarray = None, 
     y_train: np.ndarray = None,
     input_dim: int = None,
+    num_classes: int = None,
     data_path: str = None,
     val_data: tuple = None,
     epochs: int = 50,
@@ -43,6 +44,10 @@ def train_model_memory(
     if input_dim is None:
         input_dim = X_train.shape[1]
     
+    # Auto-detect num_classes from training data
+    if num_classes is None:
+        num_classes = len(np.unique(y_train))
+    
     # Convert to Tensor
     dataset = TensorDataset(torch.from_numpy(X_train).float(), torch.from_numpy(y_train).long())
     
@@ -63,7 +68,7 @@ def train_model_memory(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    model = LinearClassifier(input_dim=input_dim, num_classes=2)
+    model = LinearClassifier(input_dim=input_dim, num_classes=num_classes)
 
     model.to(device)
     

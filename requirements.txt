@@ -2,7 +2,7 @@ numpy
 matplotlib
 torch
 pandas
-# the following are needed for windows to run torch
+scikit-learn
 tqdm        
 mkl 
 intel-openmp 

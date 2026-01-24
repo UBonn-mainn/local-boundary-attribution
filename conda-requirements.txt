@@ -2,5 +2,6 @@ numpy<2.0
 matplotlib
 pandas
 tqdm
+scikit-learn
 mkl
 mkl-service
