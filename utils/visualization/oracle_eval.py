@@ -108,7 +108,7 @@ def _plot_linear_boundary(ax, w: np.ndarray, b: float, xlim: Tuple[float, float]
 def plot_2d_boundary_comparison( # show gradient color
     model: torch.nn.Module,
     x: np.ndarray,
-    b_fgsm: Optional[np.ndarray],
+    b_crawler: Optional[np.ndarray],
     b_gs: Optional[np.ndarray],
     save_path: str | Path,
     X_train: Optional[np.ndarray] = None,
@@ -120,8 +120,8 @@ def plot_2d_boundary_comparison( # show gradient color
     # circles
     gs_radius: Optional[float] = None,
     show_gs_sphere: bool = True,
-    fgsm_circle: bool = True,
-    fgsm_circle_radius: Optional[float] = None,
+    crawler_circle: bool = True,
+    crawler_circle_radius: Optional[float] = None,
     # boundary
     show_linear_boundary: bool = True,
 ) -> None:
@@ -129,10 +129,10 @@ def plot_2d_boundary_comparison( # show gradient color
     Visualize:
       - model decision regions + contour
       - point x
-      - FGSM boundary point and segment x->b_fgsm
+      - Crawler boundary point and segment x->b_crawler
       - GS boundary point and segment x->b_gs
       - GS sphere (circle) centered at x with radius=gs_radius (optional)
-      - FGSM circle centered at x with radius=||x-b_fgsm|| (optional, ensures b_fgsm lies on circle)
+      - Crawler circle centered at x with radius=||x-b_crawler|| (optional, ensures b_crawler lies on circle)
       - linear decision boundary line (exact if available, else surrogate) (optional)
     """
     save_path = Path(save_path)
@@ -146,16 +146,16 @@ def plot_2d_boundary_comparison( # show gradient color
         raise ValueError("plot_2d_boundary_comparison requires 2D inputs.")
 
     # Convert boundary points
-    bf = None if b_fgsm is None else np.asarray(b_fgsm, dtype=np.float32).reshape(-1)
+    bf = None if b_crawler is None else np.asarray(b_crawler, dtype=np.float32).reshape(-1)
     bg = None if b_gs is None else np.asarray(b_gs, dtype=np.float32).reshape(-1)
 
-    # FGSM circle radius (default: ||x-b_fgsm||)
-    r_fgsm = None
-    if fgsm_circle:
-        if fgsm_circle_radius is not None:
-            r_fgsm = float(fgsm_circle_radius)
+    # Crawler circle radius (default: ||x-b_crawler||)
+    r_crawler = None
+    if crawler_circle:
+        if crawler_circle_radius is not None:
+            r_crawler = float(crawler_circle_radius)
         elif bf is not None:
-            r_fgsm = float(np.linalg.norm(bf - x))
+            r_crawler = float(np.linalg.norm(bf - x))
 
     # Determine plot bounds (include circles so they don't get clipped)
     pts = [x]
@@ -176,8 +176,8 @@ def plot_2d_boundary_comparison( # show gradient color
     extra_r = 0.0
     if show_gs_sphere and gs_radius is not None and np.isfinite(gs_radius) and gs_radius > 0:
         extra_r = max(extra_r, float(gs_radius))
-    if fgsm_circle and r_fgsm is not None and np.isfinite(r_fgsm) and r_fgsm > 0:
-        extra_r = max(extra_r, float(r_fgsm))
+    if crawler_circle and r_crawler is not None and np.isfinite(r_crawler) and r_crawler > 0:
+        extra_r = max(extra_r, float(r_crawler))
 
     dx = (xmax - xmin) if xmax > xmin else 1.0
     dy = (ymax - ymin) if ymax > ymin else 1.0
@@ -211,10 +211,10 @@ def plot_2d_boundary_comparison( # show gradient color
             plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=2.0, label="GS sphere")
         )
 
-    # FGSM circle centered at x and passing through b_fgsm
-    if fgsm_circle and r_fgsm is not None and np.isfinite(r_fgsm) and r_fgsm > 0:
+    # Crawler circle centered at x and passing through b_crawler
+    if crawler_circle and r_crawler is not None and np.isfinite(r_crawler) and r_crawler > 0:
         ax.add_patch(
-            plt.Circle((x[0], x[1]), float(r_fgsm), fill=False, linewidth=2.0, label="FGSM circle (|x-b_fgsm|)")
+            plt.Circle((x[0], x[1]), float(r_crawler), fill=False, linewidth=2.0, label="Crawler circle (|x-b_crawler|)")
         )
 
     # Linear decision boundary (exact if possible else surrogate)
@@ -231,7 +231,7 @@ def plot_2d_boundary_comparison( # show gradient color
     ax.scatter([x[0]], [x[1]], marker="o", s=90, label="x")
 
     if bf is not None:
-        ax.scatter([bf[0]], [bf[1]], marker="x", s=120, label="FGSM boundary")
+        ax.scatter([bf[0]], [bf[1]], marker="x", s=120, label="Crawler boundary")
         ax.plot([x[0], bf[0]], [x[1], bf[1]], linewidth=1.5)
 
     if bg is not None:
@@ -253,22 +253,22 @@ def plot_2d_boundary_comparison( # show gradient color
 def plot_distance_summaries(
     df,
     save_dir: str | Path,
-    prefix: str = "fgsm_vs_gs",
+    prefix: str = "crawler_vs_gs",
 ) -> None:
     """
     df must contain columns:
-      - dist_x_to_fgsm_boundary
+      - dist_x_to_crawler_boundary
       - dist_x_to_gs_boundary
-      - dist_fgsm_to_gs_boundary
+      - dist_crawler_to_gs_boundary
     Saves histograms as PNG.
     """
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
     cols = [
-        "dist_x_to_fgsm_boundary",
+        "dist_x_to_crawler_boundary",
         "dist_x_to_gs_boundary",
-        "dist_fgsm_to_gs_boundary",
+        "dist_crawler_to_gs_boundary",
     ]
     for c in cols:
         if c not in df.columns:
