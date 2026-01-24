@@ -297,13 +297,13 @@ def plot_2d_boundary_comparison(
     # GS sphere (circle)
     if show_gs_sphere and gs_radius is not None and np.isfinite(gs_radius) and gs_radius > 0:
         ax.add_patch(
-            plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=2.0, label="GS sphere")
+            plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=1.5, label=gs_circle_label, edgecolor="yellow")
         )
 
     # Crawler circle centered at x and passing through b_crawler
     if crawler_circle and r_crawler is not None and np.isfinite(r_crawler) and r_crawler > 0:
         ax.add_patch(
-            plt.Circle((x[0], x[1]), float(r_crawler), fill=False, linewidth=2.0, label="Crawler circle (|x-b_crawler|)", edgecolor="yellow")
+            plt.Circle((x[0], x[1]), float(r_crawler), fill=False, linewidth=1.5, label=b_circle_label, edgecolor="yellow")
         )
 
     # Linear decision boundary (exact if possible else surrogate)
