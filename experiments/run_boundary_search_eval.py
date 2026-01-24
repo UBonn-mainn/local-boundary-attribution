@@ -31,7 +31,7 @@ from evaluation.ring_counts import count_classes_in_ring
 from evaluation.visualize_decision_boundary import plot_decision_boundary
 from utils.data.dataset_utils import load_dataset_from_csv
 from utils.data.load_model import load_model
-
+from utils.visualization import plot_2d_boundary_comparison
 
 # ---------------- Logging ----------------
 logging.basicConfig(
@@ -255,23 +255,23 @@ def main():
         x_input = torch.tensor(X[i], dtype=torch.float32, device=device)
         y_i = y[i]
 
-        fgsm_b_point, fgsm_success, method_used = run_search(x_input)
+        crawler_b_point, crawler_success, method_used = run_search(x_input)
 
-        b_point_np = fgsm_b_point.detach().cpu().numpy()
+        b_point_np = crawler_b_point.detach().cpu().numpy()
         fgsm_dist = np.linalg.norm(b_point_np - X[i])
 
-        if fgsm_success:
+        if crawler_success:
             boundary_points.append(b_point_np)
 
         gs_res = gs_oracle.find_boundary(x_input, y=y_i)
 
         # Angle metric
-        if fgsm_success and gs_res.success:
-            angle_deg = angle_at_x_degrees(x_input, fgsm_b_point, gs_res.x_boundary)
+        if crawler_success and gs_res.success:
+            angle_deg = angle_at_x_degrees(x_input, crawler_b_point, gs_res.x_boundary)
         else:
             angle_deg = np.nan
-        # area
-        if fgsm_success:
+        # volume/area
+        if crawler_success:
             decision_boundary_sphere_area = decision_boundary_sphere_volume(model, x_input, fgsm_dist, device=device,
                                                                             n_samples=args.curve_circle_samples,
                                                                             seed=args.seed + i)
@@ -280,10 +280,10 @@ def main():
                                              "decision_boundary_sphere_frac": np.nan}
 
         # annulus point count
-        if fgsm_success and gs_res.success and np.isfinite(gs_res.radius_found) and gs_res.radius_found > 0:
+        if crawler_success and gs_res.success and np.isfinite(gs_res.radius_found) and gs_res.radius_found > 0:
             ring = count_classes_in_ring(
                 x=x_input,
-                b_fgsm=fgsm_b_point,
+                b_fgsm=crawler_b_point,
                 r_gs=float(gs_res.radius_found),
                 X_ref=X,  # use your dataset points as the reference set
                 y_ref=y,  # counts by dataset labels
@@ -297,7 +297,7 @@ def main():
             "idx": i,
             "y": y_i,
 
-            "fgsm_success": bool(fgsm_success),
+            "crawler_success": bool(crawler_success),
             "gs_success": bool(gs_res.success),
 
             "gs_radius_found": float(gs_res.radius_found),
@@ -306,21 +306,49 @@ def main():
             "curve_circle_area": decision_boundary_sphere_area["decision_boundary_sphere_area"],
             "curve_circle_frac": decision_boundary_sphere_area["decision_boundary_sphere_frac"],
 
-            "dist_x_to_fgsm_boundary": l2(x_input, fgsm_b_point),
+            "dist_x_to_fgsm_boundary": l2(x_input, crawler_b_point),
             "dist_x_to_gs_boundary": l2(x_input, gs_res.x_boundary),
-            "dist_fgsm_boundary_to_gs_boundary": l2(fgsm_b_point, gs_res.x_boundary),
+            "dist_fgsm_boundary_to_gs_boundary": l2(crawler_b_point, gs_res.x_boundary),
 
-            "ring_n": ring.get("ring_n", 0),
+            "ring_n": ring.get("ring_n", 0), # all class
             "ring_r_min": ring.get("ring_r_min", np.nan),
             "ring_r_max": ring.get("ring_r_max", np.nan),
 
-            "ring_count_y0": ring.get("ring_count_y0", 0),
-            "ring_count_y1": ring.get("ring_count_y1", 0),
+            "ring_count_y0": ring.get("ring_count_y0", 0), # each class
+            "ring_count_y1": ring.get("ring_count_y1", 0), # each class
 
             "ring_count_pred0": ring.get("ring_count_pred0", 0),
             "ring_count_pred1": ring.get("ring_count_pred1", 0),
         }
         rows.append(row)
+
+
+        i = row["idx"]
+        if X.shape[1] == 2 and i < args.vis_points:
+            out_path = Path(args.vis_dir) / f"pt_{i:04d}.png"
+            title = (
+                f"idx={i} | fgsm={row['fgsm_success']} | gs={row['gs_success']} | "
+                f"angle={row['angle_x_fgsm_gs_deg']:.1f}° | "
+                f"AΔ={row['area_disagreement']:.3f} | "
+                f"curve∩circle area={row['curve_circle_area']:.3f}"
+                if np.isfinite(row["angle_x_fgsm_gs_deg"]) and np.isfinite(row["area_disagreement"])
+                else f"idx={i} | fgsm={row['fgsm_success']} | gs={row['gs_success']}"
+            )
+
+            plot_2d_boundary_comparison(
+                model=model,
+                x=x_input,
+                b_fgsm=np.asarray(crawler_b_point, dtype=np.float32) if row["fgsm_success"] else None,
+                b_gs=np.asarray(gs_res.x_boundary, dtype=np.float32) if row["gs_success"] else None,
+                gs_radius=row["gs_radius_found"] if row["gs_success"] else None,
+                save_path=out_path,
+                X_train=X,
+                y_train=y,
+                device=device,
+                title=title,
+                # This will draw a circle centered at x with radius ||x-b_fgsm||:
+                fgsm_circle=True,
+            )
 
     df = pd.DataFrame(rows)
     df.to_csv(args.save_path, index=False)

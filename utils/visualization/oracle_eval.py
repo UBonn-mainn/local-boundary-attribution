@@ -105,7 +105,7 @@ def _plot_linear_boundary(ax, w: np.ndarray, b: float, xlim: Tuple[float, float]
             ax.plot([x0, x0], [ymin, ymax], linestyle="--", linewidth=2.0, label=label)
 
 
-def plot_2d_boundary_comparison(
+def plot_2d_boundary_comparison( # show gradient color
     model: torch.nn.Module,
     x: np.ndarray,
     b_fgsm: Optional[np.ndarray],
