@@ -11,8 +11,6 @@ import torch
 
 from boundary_search.fgsm import FGSMBoundarySearch
 from evaluation.angle_metrics import angle_at_x_degrees
-from boundary_search.boundary_walker import BoundaryCrawler
-from evaluation.growing_spheres_oracle import GrowingSpheresOracle
 from evaluation.area_compare import compute_area_fgsm_vs_gs
 # NEW: curve + circle area (global FGSM boundary curve + per-x circle)
 from evaluation.curve_circle_area import cal_curve_circle_area
@@ -54,7 +52,6 @@ def main():
     # Area comparison (FGSM vs GS induced hyperplanes inside GS ball)
     parser.add_argument("--area_samples", type=int, default=4000, help="Monte Carlo samples inside GS ball.")
 
-<<<<<<< Updated upstream
     # Curve-vs-circle area (global FGSM curve + per-x circle)
     parser.add_argument("--curve_arc_resolution", type=int, default=200,
                         help="Number of points to discretize the circle arc.")
@@ -62,17 +59,9 @@ def main():
                         help="Use the shorter of the two circle arcs (recommended).")
     parser.add_argument("--curve_circle_samples", type=int, default=20000, help="MC samples for curve circle area.")
     # FGSM params
-=======
-    # FGSM params (defaults tuned for your linearly separable 2D data)
-    parser.add_argument("--method", type=str, default="crawler", choices=["fgsm", "crawler"])
->>>>>>> Stashed changes
     parser.add_argument("--fgsm_step", type=float, default=0.1)
     parser.add_argument("--fgsm_max_steps", type=int, default=80)
     parser.add_argument("--fgsm_bisect_steps", type=int, default=20)
-    
-    # Crawler params
-    parser.add_argument("--crawler_step", type=float, default=0.05)
-    parser.add_argument("--crawler_max_steps", type=int, default=100)
 
     # GS oracle params
     parser.add_argument("--gs_dirs", type=int, default=128)
@@ -89,47 +78,22 @@ def main():
 
     # ---------------- Load data + model ----------------
     X, y = load_dataset_from_csv(args.data_path)  # X: (N,d), y: (N,)
-<<<<<<< Updated upstream
     X = np.asarray(X, dtype=np.float32)
     y = np.asarray(y)
 
     model = load_model(args.model_path, model_type=args.model_type)
-=======
-    input_dim = X.shape[1]
-    logger.info("Data loaded. N=%d, d=%d", X.shape[0], input_dim)
-
-    model = load_model(args.model_path, model_type=args.model_type, input_dim=input_dim)
->>>>>>> Stashed changes
     model = model.to(device)
     model.eval()
 
     # ---------------- Methods ----------------
-    if args.method == "fgsm":
-        method = FGSMBoundarySearch(
-            model=model,
-            step_size=args.fgsm_step,
-            max_steps=args.fgsm_max_steps,
-            boundary_bisect_steps=args.fgsm_bisect_steps,
-            clamp=None, 
-            device=device,
-        )
-    elif args.method == "crawler":
-        method = BoundaryCrawler(
-            model=model,
-            device=device,
-            fgsm_params={
-                "step_size": args.fgsm_step, # Used for initialization
-                "max_steps": args.fgsm_max_steps,
-                "boundary_bisect_steps": args.fgsm_bisect_steps,
-                "clamp": None
-            },
-            crawl_params={
-                "step_size": args.crawler_step,
-                "max_iterations": args.crawler_max_steps,
-            }
-        )
-    else:
-        raise ValueError(f"Unknown method: {args.method}")
+    fgsm = FGSMBoundarySearch(
+        model=model,
+        step_size=args.fgsm_step,
+        max_steps=args.fgsm_max_steps,
+        boundary_bisect_steps=args.fgsm_bisect_steps,
+        clamp=None,  # IMPORTANT: no (0,1) clamp for this dataset
+        device=device,
+    )
 
     gs_oracle = GrowingSpheresOracle(
         model=model,
@@ -160,7 +124,6 @@ def main():
         x_i = np.asarray(X[i], dtype=np.float32)
         y_i = int(y[i])
 
-<<<<<<< Updated upstream
         fgsm_res = fgsm.search(x_i, y=y_i)  # includes refinement (bisection)
         gs_res = gs_oracle.find_boundary(x_i, y=y_i)
 
@@ -184,20 +147,10 @@ def main():
 
         # Area metrics: FGSM vs GS induced hyperplanes inside GS ball
         if fgsm_res.success and gs_res.success and np.isfinite(gs_res.radius_found) and gs_res.radius_found > 0:
-=======
-        # 1) Method boundary point
-        method_res = method.search(x_i, y=y_i)
-
-        # 2) GS boundary point + radius (oracle)
-        gs_res = gs_oracle.find_boundary(x_i, y=y_i)
-
-        # 3) Areas (Method vs GS) inside GS ball + compare
-        if method_res.success and gs_res.success and np.isfinite(gs_res.radius_found) and gs_res.radius_found > 0:
->>>>>>> Stashed changes
             area_cmp = compute_area_fgsm_vs_gs(
                 model=model,
                 x=x_i,
-                b_fgsm=method_res.x_boundary,
+                b_fgsm=fgsm_res.x_boundary,
                 b_gs=gs_res.x_boundary,
                 r_gs=float(gs_res.radius_found),
                 N=args.area_samples,
@@ -222,14 +175,10 @@ def main():
         row = {
             "idx": i,
             "y": y_i,
-<<<<<<< Updated upstream
 
             "fgsm_success": bool(fgsm_res.success),
-=======
-            "method_success": bool(method_res.success),
->>>>>>> Stashed changes
             "gs_success": bool(gs_res.success),
-            "method_steps": int(method_res.num_steps) if hasattr(method_res, 'num_steps') else 0,
+            "fgsm_steps": int(fgsm_res.num_steps),
             "gs_radius_found": float(gs_res.radius_found),
             # "b_fgsm": np.asarray(fgsm_res.x_boundary, dtype=np.float32),
             # "b_gs": np.asarray(gs_res.x_boundary, dtype=np.float32),
@@ -239,12 +188,10 @@ def main():
             "curve_circle_area": fgsm_cc_area["curve_circle_area"],
             "curve_circle_frac": fgsm_cc_area["curve_circle_frac"],
 
-            "dist_method": l2(x_i, method_res.x_boundary),
-            "dist_gs_boundary": l2(x_i, gs_res.x_boundary),
-            "dist_diff": l2(x_i, method_res.x_boundary) - l2(x_i, gs_res.x_boundary),
-            "method": args.method,
+            "dist_x_to_fgsm_boundary": l2(x_i, fgsm_res.x_boundary),
+            "dist_x_to_gs_boundary": l2(x_i, gs_res.x_boundary),
+            "dist_fgsm_boundary_to_gs_boundary": l2(fgsm_res.x_boundary, gs_res.x_boundary),
 
-<<<<<<< Updated upstream
             "area_fgsm": float(area_cmp["area_fgsm"]),
             "area_gs": float(area_cmp["area_gs"]),
             "area_disagreement": float(area_cmp["area_disagreement"]),
@@ -258,12 +205,6 @@ def main():
 
             "ring_count_pred0": ring.get("ring_count_pred0", 0),
             "ring_count_pred1": ring.get("ring_count_pred1", 0),
-=======
-            # area metrics (NEW)
-            "area_method": area_cmp["area_fgsm"],
-            "area_gs": area_cmp["area_gs"],
-            "area_disagreement": area_cmp["area_disagreement"],
->>>>>>> Stashed changes
         }
         rows.append(row)
 
@@ -286,31 +227,21 @@ def main():
             plot_2d_boundary_comparison(
                 model=model,
                 x=x_i,
-<<<<<<< Updated upstream
                 b_fgsm=np.asarray(fgsm_res.x_boundary, dtype=np.float32) if row["fgsm_success"] else None,
                 b_gs=np.asarray(gs_res.x_boundary, dtype=np.float32) if row["gs_success"] else None,
                 gs_radius=row["gs_radius_found"] if row["gs_success"] else None,
-=======
-                b_fgsm=method_res.x_boundary if method_res.success else None,
-                b_gs=gs_res.x_boundary if gs_res.success else None,
-                gs_radius=gs_res.radius_found if gs_res.success else None,
->>>>>>> Stashed changes
                 save_path=out_path,
                 X_train=X,
                 y_train=y,
                 device=device,
-<<<<<<< Updated upstream
                 title=title,
                 # This will draw a circle centered at x with radius ||x-b_fgsm||:
                 fgsm_circle=True,
-=======
-                title=(
-                    f"idx={i} | {args.method}={method_res.success} | gs={gs_res.success} | "
-                    f"A_m={row['area_method']:.3f} | A_g={row['area_gs']:.3f} | A_Δ={row['area_disagreement']:.3f}"
-                    if np.isfinite(row["area_disagreement"])
-                    else f"idx={i} | {args.method}={method_res.success} | gs={gs_res.success}"
-                ),
->>>>>>> Stashed changes
+                show_soft_surface=True,
+                soft_mode="p_class1",  # "p_true" | "p_class1" | "p_max"
+                soft_levels=20,
+                soft_alpha=0.85,
+                show_hard_contour=True
             )
 
     # ---------------- Save report ----------------
