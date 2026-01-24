@@ -92,10 +92,6 @@ class HybridFGSMIBS:
                 target_endpoints.append(candidate_endpoint)
 
         # C) Standard IBS Candidates (Data Driven) - Optional
-        # If the user strictly wants "randomly picked" (meaning generic), we might skip this.
-        # But usually Hybrid implies using data. Let's include a few if we have "budget" left?
-        # For now, we strictly follow the new interpretation: FGSM start -> Random Directions.
-        # The `ibs_searcher` class naturally picks from X_train, so we can use its logic if we wanted.
         # Let's trust strictly in the "FGSM + Local Perturbation" as the primary "Refined FGSM" strategy.
         
         # 3. Execute Ray Search

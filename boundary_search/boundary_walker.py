@@ -11,30 +11,21 @@ logger = logging.getLogger(__name__)
 
 class BoundaryCrawler:
     """
-    Iterative Boundary Crawler (Crawler).
-    
-    Iterative Boundary Crawler (Crawler).
+    Iterative Boundary Crawler.
     
     Algorithm:
     1. Start with an initial boundary point (found via FGSM).
     2. Iteratively 'crawl' along the decision boundary surface to find a point 
        closer to the original input x.
        
-    The crawling can happen in two modes:
-    A) Random Ring (Default):
-       - Sample discrete points in a local 'ring' (hypersphere) tangent to the surface.
-       - Project them onto the boundary using bisection.
-       - Pick the best one. Inefficient in High-D.
-       
-    B) Gradient Descent (Manifold Descent):
-       - Calculate the exact Normal Vector of the boundary using autograd.
-       - Calculate the 'ideal' movement direction: the vector pointing towards x_orig,
-         PROJECTED onto the tangent plane of the boundary.
-       - Take a step in this optimal direction and re-project to the boundary.
+    The crawling uses Gradient Descent (Manifold Descent):
+    - Calculate the exact Normal Vector of the boundary using autograd.
+    - Calculate the 'ideal' movement direction: the vector pointing towards x_orig,
+      PROJECTED onto the tangent plane of the boundary.
+    - Take a step in this optimal direction and re-project to the boundary.
     
     Runtime Complexity:
-    - Random: O(Iterations * Samples * BisectionSteps)
-    - Gradient: O(Iterations * (2 Forward + 1 Backward + BisectionSteps))
+    - O(Iterations * (2 Forward + 1 Backward + BisectionSteps))
     """
     def __init__(
         self, 
@@ -49,10 +40,8 @@ class BoundaryCrawler:
         
         # Crawl parameters
         params = crawl_params or {}
-        self.mode = params.get("mode", "random") # 'random' or 'gradient'
         self.max_iterations = params.get("max_iterations", 10)
-        self.num_samples = params.get("num_samples", 10) # 'K' samples on the ring (Random Mode)
-        self.step_size = params.get("step_size", 0.05)   # Step size / Radius
+        self.step_size = params.get("step_size", 0.05)   # Step size
         self.bisection_steps = params.get("bisection_steps", 10)
         
         self.fgsm_searcher = FGSMBoundarySearch(
@@ -119,7 +108,7 @@ class BoundaryCrawler:
         # or maybe a pair (A, B). 
         # For this crawler, 'current_boundary' is just a point very close to the decision surface.
         
-        # Let's verify we didn't diverge to a totally different class
+        # Verify we didn't diverge to a totally different class
         probs = F.softmax(logits, dim=-1)
         top2 = torch.topk(probs, 2, dim=-1).indices[0]
         if y_orig not in top2.tolist():
@@ -215,11 +204,11 @@ class BoundaryCrawler:
         
         return x_candidate_out
 
-    def search(self, x: np.ndarray) -> BoundarySearchResult:
+    def search(self, x: np.ndarray, y: Optional[int] = None) -> BoundarySearchResult:
         x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
         
         # 1. Initial Point via FGSM
-        res_fgsm = self.fgsm_searcher.search(x)
+        res_fgsm = self.fgsm_searcher.search(x, y=y)
         if not res_fgsm.success:
             logger.warning("Crawler: FGSM initialization failed.")
             return res_fgsm
@@ -227,7 +216,10 @@ class BoundaryCrawler:
         current_boundary = torch.tensor(res_fgsm.x_boundary, device=self.device).unsqueeze(0)
         
         # Get original label for reference
-        y_orig = self.model(x_tensor).argmax(dim=-1).item()
+        if y is None:
+            y_orig = self.model(x_tensor).argmax(dim=-1).item()
+        else:
+            y_orig = y
         
         best_dist = torch.norm(current_boundary - x_tensor).item()
         logger.debug(f"Crawler Start: Dist {best_dist:.4f}")
@@ -240,59 +232,39 @@ class BoundaryCrawler:
             
             refined_candidates = []
             
-            if self.mode == "gradient":
-                # --- GRADIENT MODE ---
-                # 1. Calculate ONE optimal tangent step
-                cand_step = self._projected_step(current_boundary, x_tensor, step_size=current_step_size)
-                
-                if cand_step is None:
-                    break # Optimal reached
-                
-                # 2. Refine using Newton-Raphson (Fast)
-                cand_refined = self._newton_restore(cand_step, y_orig)
-                
-                if cand_refined is not None:
-                     refined_candidates.append(cand_refined)
-                else:
-                    # Fallback: Newton failed (diverged/vanished). Try robust Bisection.
-                    # We need a valid crossing to bisect.
-                    pred_cand = self.model(cand_step).argmax(dim=-1).item()
-                    candidate_to_bisect = None
-                    
-                    if pred_cand != y_orig:
-                        candidate_to_bisect = cand_step
-                    else: 
-                        # Try Push Out
-                         diff = cand_step - x_tensor
-                         for mult in [1.5, 2.0, 3.0, 5.0]:
-                             c_out = x_tensor + diff * mult
-                             if self.model(c_out).argmax(dim=-1).item() != y_orig:
-                                 candidate_to_bisect = c_out
-                                 break
-                    
-                    if candidate_to_bisect is not None:
-                         b = self._bisect(x_tensor, candidate_to_bisect, y_orig)
-                         if b is not None:
-                             refined_candidates.append(b)
-
+            # --- GRADIENT DESCENT (Manifold Descent) ---
+            # 1. Calculate ONE optimal tangent step
+            cand_step = self._projected_step(current_boundary, x_tensor, step_size=current_step_size)
+            
+            if cand_step is None:
+                break # Optimal reached
+            
+            # 2. Refine using Newton-Raphson (Fast)
+            cand_refined = self._newton_restore(cand_step, y_orig)
+            
+            if cand_refined is not None:
+                    refined_candidates.append(cand_refined)
             else:
-                # --- RANDOM RING MODE (Legacy) ---
-                # Sample a 'ring' (hypersphere shell) around current_boundary
-                noise = torch.randn(self.num_samples, *x_tensor.shape[1:], device=self.device)
-                noise = F.normalize(noise, p=2, dim=-1)
-                ring_points = current_boundary + self.step_size * noise
+                # Fallback: Newton failed (diverged/vanished). Try robust Bisection.
+                # We need a valid crossing to bisect.
+                pred_cand = self.model(cand_step).argmax(dim=-1).item()
+                candidate_to_bisect = None
                 
-                logits_ring = self.model(ring_points)
-                preds_ring = logits_ring.argmax(dim=-1)
+                if pred_cand != y_orig:
+                    candidate_to_bisect = cand_step
+                else: 
+                    # Try Push Out
+                        diff = cand_step - x_tensor
+                        for mult in [1.5, 2.0, 3.0, 5.0]:
+                            c_out = x_tensor + diff * mult
+                            if self.model(c_out).argmax(dim=-1).item() != y_orig:
+                                candidate_to_bisect = c_out
+                                break
                 
-                for j in range(self.num_samples):
-                    p_ring = ring_points[j:j+1]
-                    pred = preds_ring[j].item()
-                    
-                    if pred != y_orig:
-                         b = self._bisect(x_tensor, p_ring, y_orig)
-                         if b is not None:
-                             refined_candidates.append(b)
+                if candidate_to_bisect is not None:
+                        b = self._bisect(x_tensor, candidate_to_bisect, y_orig)
+                        if b is not None:
+                            refined_candidates.append(b)
 
             # 4. Selection & Adaptation
             step_improved = False
@@ -306,27 +278,17 @@ class BoundaryCrawler:
                     best_cand_iter = cand
                     step_improved = True
             
-            if self.mode == "gradient":
-                 total_steps += 1
-                 if step_improved:
-                     logger.debug(f"Crawler Iter {i} (gradient): Improved dist to {best_dist:.4f}")
-                     # Optional: Reset or increase step size?
-                     # current_step_size = max(current_step_size, self.step_size)
-                 else:
-                     # Adaptive: Reduce step size and retry
-                     current_step_size *= 0.5
-                     logger.debug(f"Crawler Iter {i} (gradient): No impr. Reducing step to {current_step_size:.4f}")
-                     if current_step_size < 1e-4:
-                         logger.debug("Crawler: Step size too small. Stop.")
-                         break
-                     # Do not break, continue loop to retry
+            total_steps += 1
+            if step_improved:
+                logger.debug(f"Crawler Iter {i} (gradient): Improved dist to {best_dist:.4f}")
+                # Optional: Reset or increase step size?
+                # current_step_size = max(current_step_size, self.step_size)
             else:
-                 # Random mode
-                 total_steps += len(refined_candidates)
-                 if step_improved:
-                    logger.debug(f"Crawler Iter {i} (random): Improved dist to {best_dist:.4f}")
-                 else:
-                    logger.debug(f"Crawler Iter {i} (random): No improvement. Stopping.")
+                # Adaptive: Reduce step size and retry
+                current_step_size *= 0.5
+                logger.debug(f"Crawler Iter {i} (gradient): No impr. Reducing step to {current_step_size:.4f}")
+                if current_step_size < 1e-4:
+                    logger.debug("Crawler: Step size too small. Stop.")
                     break
                 
         x_final = current_boundary.squeeze(0).cpu().numpy()

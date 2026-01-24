@@ -41,16 +41,10 @@ def main():
     )
     parser.add_argument("--ibs_candidates", type=int, default=10, help="Number of candidates for IBS")
     parser.add_argument("--ibs_max_iter", type=int, default=50, help="Max iterations for IBS binary search")
-    parser.add_argument("--crawler_samples", type=int, default=10, help="Samples per crawler ring")
+
     parser.add_argument("--crawler_iter", type=int, default=10, help="Max crawler iterations")
     parser.add_argument("--crawler_step", type=float, default=0.05, help="Crawler ring radius")
-    parser.add_argument(
-        "--crawler_mode", 
-        type=str, 
-        default="random", 
-        choices=["random", "gradient"],
-        help="Crawler mode: 'random' ring or 'gradient' projection"
-    )
+
     parser.add_argument("--step_size", type=float, default=0.01, help="FGSM step size")
     parser.add_argument("--max_iters", type=int, default=50, help="FGSM max iterations")
     parser.add_argument("--gs_initial_radius", type=float, default=0.1, help="Growing Spheres initial radius")
@@ -146,9 +140,7 @@ def main():
             }
             # Crawler params
             crawl_params = {
-                "mode": args.crawler_mode,
                 "max_iterations": args.crawler_iter,
-                "num_samples": args.crawler_samples,
                 "step_size": args.crawler_step,
                 "bisection_steps": 10
             }
@@ -268,7 +260,7 @@ def main():
 
         if success:
             boundary_points.append(b_point_np)
-    # print("test", boundary_points)
+
     # Save Results
     df_results = pd.DataFrame(results)
     csv_path = save_dir / "boundary_points.csv"
