@@ -1,0 +1,31 @@
+{
+  "experiment_name": "2d_spirals",
+  "timestamp": "2026-01-25T01:03:15.551457",
+  "n_features": 2,
+  "dataset_type": "spirals",
+  "dataset": {
+    "dataset_type": "spirals",
+    "n_features": 2,
+    "n_samples_per_class": 200,
+    "random_state": 42,
+    "generator": "generate_spirals_data",
+    "noise": 0.2,
+    "n_rotations": 2.0,
+    "n_classes": 2,
+    "total_samples": 400
+  },
+  "training": {
+    "model_type": "mlp",
+    "epochs": 50,
+    "seed": 42,
+    "save_path": "/home/iailab72/beckersa0/local-boundary-attribution/results/synthetic_experiments/2d_spirals/mlp_model.pth"
+  },
+  "evaluation": {
+    "method": "crawler",
+    "gs_r_max": 5.0,
+    "gs_dirs": 128,
+    "fgsm_max_iters": 50,
+    "fgsm_step_size": 0.01,
+    "success": true
+  }
+}

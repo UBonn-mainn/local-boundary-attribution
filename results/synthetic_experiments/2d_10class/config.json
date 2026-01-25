@@ -1,0 +1,30 @@
+{
+  "experiment_name": "2d_10class",
+  "timestamp": "2026-01-25T01:21:06.788724",
+  "n_features": 2,
+  "dataset_type": "10class",
+  "dataset": {
+    "dataset_type": "10class",
+    "n_features": 2,
+    "n_samples_per_class": 200,
+    "random_state": 42,
+    "n_classes": 10,
+    "generator": "generate_multiclass_blobs_data",
+    "cluster_std": 1.0,
+    "total_samples": 2000
+  },
+  "training": {
+    "model_type": "mlp",
+    "epochs": 50,
+    "seed": 42,
+    "save_path": "/home/iailab72/beckersa0/local-boundary-attribution/results/synthetic_experiments/2d_10class/mlp_model.pth"
+  },
+  "evaluation": {
+    "method": "crawler",
+    "gs_r_max": 5.0,
+    "gs_dirs": 128,
+    "fgsm_max_iters": 50,
+    "fgsm_step_size": 0.01,
+    "success": true
+  }
+}
