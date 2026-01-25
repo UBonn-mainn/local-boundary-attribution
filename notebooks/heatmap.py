@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load dataset
-df = pd.read_csv("/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/eval/fgsm_vs_gs.csv")
+df = pd.read_csv("/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/eval/concentric_rings/fgsm_vs_gs_concentric_rings.csv")
 
 numeric_df = df.select_dtypes(include=[np.number])
 numeric_df["dist_radii"] = abs(numeric_df["ring_r_max"] - numeric_df["ring_r_min"])

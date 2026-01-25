@@ -9,9 +9,9 @@ import numpy as np
 
 
 def generate_linearly_separable_data(
-    n_samples_per_class: int = 200,
-    n_features: int = 2,
-    random_state: Optional[int] = None,
+        n_samples_per_class: int = 200,
+        n_features: int = 2,
+        random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a simple linearly separable dataset with two classes.
@@ -64,13 +64,13 @@ def generate_linearly_separable_data(
 
 
 def generate_concentric_hyperspheres_data(
-    n_samples_per_class: int = 200,
-    n_features: int = 2,
-    inner_radius: float = 2.0,
-    outer_radius_start: float = 4.0,
-    outer_radius_end: float = 6.0,
-    noise: float = 0.1,
-    random_state: Optional[int] = None,
+        n_samples_per_class: int = 200,
+        n_features: int = 2,
+        inner_radius: float = 2.0,
+        outer_radius_start: float = 4.0,
+        outer_radius_end: float = 6.0,
+        noise: float = 0.1,
+        random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a non-linearly separable dataset consisting of two concentric hyperspheres.
@@ -114,7 +114,7 @@ def generate_concentric_hyperspheres_data(
     # Sampling uniformly from a ball is tricky in high-D, simple approx:
     # direction is uniform, radius is u^(1/d) * R
     direction0 = sample_spherical(n_samples_per_class, n_features)
-    radii0 = np.random.rand(n_samples_per_class) ** (1/n_features) * inner_radius
+    radii0 = np.random.rand(n_samples_per_class) ** (1 / n_features) * inner_radius
     X_class0 = direction0 * radii0[:, np.newaxis]
     y_class0 = np.zeros(n_samples_per_class)
 
@@ -144,9 +144,9 @@ def generate_concentric_hyperspheres_data(
 
 
 def generate_moons_data(
-    n_samples_per_class: int = 200,
-    noise: float = 0.1,
-    random_state: Optional[int] = None,
+        n_samples_per_class: int = 200,
+        noise: float = 0.1,
+        random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a 2D moons dataset (two interleaving half-circles).
@@ -168,24 +168,24 @@ def generate_moons_data(
         Label vector of shape (2 * n_samples_per_class,) with values {0, 1}.
     """
     from sklearn.datasets import make_moons
-    
+
     X, y = make_moons(
         n_samples=2 * n_samples_per_class,
         noise=noise,
         random_state=random_state
     )
-    
+
     # Scale to similar range as other datasets
     X = X * 3.0
-    
+
     return X.astype(np.float32), y.astype(np.float32)
 
 
 def generate_spirals_data(
-    n_samples_per_class: int = 200,
-    noise: float = 0.2,
-    n_rotations: float = 2.0,
-    random_state: Optional[int] = None,
+        n_samples_per_class: int = 200,
+        noise: float = 0.2,
+        n_rotations: float = 2.0,
+        random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a 2D two-spirals dataset.
@@ -210,9 +210,9 @@ def generate_spirals_data(
     """
     if random_state is not None:
         np.random.seed(random_state)
-    
+
     n = n_samples_per_class
-    
+
     # Generate spiral arm 1 (class 0)
     theta = np.sqrt(np.linspace(0, 1, n)) * n_rotations * 2 * np.pi
     r = theta / (n_rotations * 2 * np.pi) * 5  # radius grows with angle
@@ -220,30 +220,30 @@ def generate_spirals_data(
     y1 = r * np.sin(theta) + np.random.normal(0, noise, n)
     X_class0 = np.column_stack([x1, y1])
     y_class0 = np.zeros(n)
-    
+
     # Generate spiral arm 2 (class 1) - rotated by pi
     x2 = r * np.cos(theta + np.pi) + np.random.normal(0, noise, n)
     y2 = r * np.sin(theta + np.pi) + np.random.normal(0, noise, n)
     X_class1 = np.column_stack([x2, y2])
     y_class1 = np.ones(n)
-    
+
     # Combine and shuffle
     X = np.vstack((X_class0, X_class1))
     y = np.hstack((y_class0, y_class1))
-    
+
     shuffle_idx = np.random.permutation(len(X))
     X = X[shuffle_idx]
     y = y[shuffle_idx]
-    
+
     return X.astype(np.float32), y.astype(np.float32)
 
 
 def generate_multiclass_blobs_data(
-    n_samples_per_class: int = 200,
-    n_features: int = 2,
-    n_classes: int = 3,
-    cluster_std: float = 1.0,
-    random_state: Optional[int] = None,
+        n_samples_per_class: int = 200,
+        n_features: int = 2,
+        n_classes: int = 3,
+        cluster_std: float = 1.0,
+        random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate a multiclass dataset with Gaussian blobs (linearly separable).
@@ -269,7 +269,7 @@ def generate_multiclass_blobs_data(
         Label vector with values {0, 1, ..., n_classes-1}.
     """
     from sklearn.datasets import make_blobs
-    
+
     # Use tighter center_box to create some overlap between clusters
     # This creates a more realistic classification challenge
     X, y = make_blobs(
@@ -280,17 +280,17 @@ def generate_multiclass_blobs_data(
         center_box=(-5.0, 5.0),  # Tighter box means closer clusters
         random_state=random_state
     )
-    
+
     return X.astype(np.float32), y.astype(np.float32)
 
 
 def generate_high_dim_curvy_data(
-    n_samples_per_class: int = 200,
-    n_features: int = 8,
-    n_classes: int = 2,
-    pattern: str = "concentric",
-    noise: float = 0.1,
-    random_state: Optional[int] = None,
+        n_samples_per_class: int = 200,
+        n_features: int = 8,
+        n_classes: int = 2,
+        pattern: str = "concentric",
+        noise: float = 0.1,
+        random_state: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate high-dimensional data with curvy (non-linear) decision boundaries.
@@ -322,84 +322,84 @@ def generate_high_dim_curvy_data(
     """
     if random_state is not None:
         np.random.seed(random_state)
-    
+
     def sample_spherical(n_samples, n_dim):
         """Sample uniformly from the surface of a hypersphere."""
         vec = np.random.randn(n_dim, n_samples)
         vec /= np.linalg.norm(vec, axis=0)
         return vec.T
-    
+
     if pattern == "concentric":
         # Create n_classes concentric shells
         X_list = []
         y_list = []
-        
+
         for cls in range(n_classes):
             # Each class is a shell with radius based on class index
             r_min = 2.0 + cls * 2.5  # Shells at r=2, 4.5, 7, ...
             r_max = r_min + 1.5
-            
+
             direction = sample_spherical(n_samples_per_class, n_features)
             radii = np.random.uniform(r_min, r_max, size=n_samples_per_class)
             X_cls = direction * radii[:, np.newaxis]
-            
+
             if noise > 0:
                 X_cls += np.random.normal(scale=noise, size=X_cls.shape)
-            
+
             X_list.append(X_cls)
             y_list.append(np.full(n_samples_per_class, cls))
-        
+
         X = np.vstack(X_list)
         y = np.hstack(y_list)
-    
+
     elif pattern == "sectors":
         # Create angular sectors based on first two principal directions
         # This creates a spiral-like pattern that generalizes to high-D
         X_list = []
         y_list = []
-        
+
         for cls in range(n_classes):
             n = n_samples_per_class
-            
+
             # Sample points uniformly in a ball
             direction = sample_spherical(n, n_features)
-            radii = np.random.rand(n) ** (1/n_features) * 5  # uniform in ball
+            radii = np.random.rand(n) ** (1 / n_features) * 5  # uniform in ball
             X_cls = direction * radii[:, np.newaxis]
-            
+
             # Rotate based on class (in first 2 dims, like a spiral)
             angle_offset = cls * (2 * np.pi / n_classes)
             angles = np.arctan2(X_cls[:, 1], X_cls[:, 0]) + angle_offset
-            r_2d = np.sqrt(X_cls[:, 0]**2 + X_cls[:, 1]**2)
-            
+            r_2d = np.sqrt(X_cls[:, 0] ** 2 + X_cls[:, 1] ** 2)
+
             X_cls[:, 0] = r_2d * np.cos(angles)
             X_cls[:, 1] = r_2d * np.sin(angles)
-            
+
             if noise > 0:
                 X_cls += np.random.normal(scale=noise, size=X_cls.shape)
-            
+
             X_list.append(X_cls)
             y_list.append(np.full(n, cls))
-        
+
         X = np.vstack(X_list)
         y = np.hstack(y_list)
-    
+
     else:
         raise ValueError(f"Unknown pattern: {pattern}. Use 'concentric' or 'sectors'.")
-    
+
     # Shuffle
     shuffle_idx = np.random.permutation(len(X))
     X = X[shuffle_idx]
     y = y[shuffle_idx]
-    
+
     return X.astype(np.float32), y.astype(np.float32)
 
 
 def save_dataset_to_csv(
-    X: np.ndarray,
-    y: np.ndarray,
-    out_dir: str | Path = ".",
-    prefix: str = "linearly_separable_data",
-    timestamp: Optional[str] = None,
+        X: np.ndarray,
+        y: np.ndarray,
+        out_dir: str | Path = ".",
+        prefix: str = "linearly_separable_data",
+        timestamp: Optional[str] = None,
 ) -> Path:
     """
     Save a dataset (X, y) to a CSV file.
@@ -431,7 +431,7 @@ def save_dataset_to_csv(
     filename = out_dir / f"{prefix}_{timestamp}.csv"
 
     data_to_save = np.column_stack((X, y))
-    header = ",".join([f"feature{i+1}" for i in range(X.shape[1])]) + ",class"
+    header = ",".join([f"feature{i + 1}" for i in range(X.shape[1])]) + ",class"
 
     np.savetxt(filename, data_to_save, delimiter=",", header=header, comments="")
 
@@ -439,12 +439,12 @@ def save_dataset_to_csv(
 
 
 def plot_2d_dataset(
-    X: np.ndarray,
-    y: np.ndarray,
-    out_dir: str | Path = ".",
-    prefix: str = "linearly_separable_plot",
-    timestamp: Optional[str] = None,
-    show: bool = True,
+        X: np.ndarray,
+        y: np.ndarray,
+        out_dir: str | Path = ".",
+        prefix: str = "linearly_separable_plot",
+        timestamp: Optional[str] = None,
+        show: bool = True,
 ) -> Optional[Path]:
     """
     Visualize a 2D dataset and optionally save the plot.
@@ -544,29 +544,112 @@ def load_dataset_from_csv(csv_path: str | Path) -> Tuple[np.ndarray, np.ndarray]
     return X, y
 
 
-if __name__ == "__main__":
+def make_concentric_rings(
+    n_total=800,
+    center=(0.0, 0.0),
+    r_inner=0.40,
+    r_outer=1.00,
+    noise_inner=0.06,
+    noise_outer=0.07,
+    p_outer=0.71375,   # matches your screenshot ratio for class 0 (outer)
+    seed=None,
+):
+    """
+    Two concentric rings with the SAME center.
+
+    Labels:
+        y = 0 -> outer ring
+        y = 1 -> inner ring
+
+    Args:
+        p_outer: fraction of samples in outer ring (class 0)
+    Returns:
+        X: (n_total, 2)
+        y: (n_total,)
+    """
+    rng = np.random.default_rng(seed)
+    cx, cy = center
+
+    n_outer = int(round(n_total * p_outer))
+    n_inner = n_total - n_outer
+
+    # angles
+    theta_outer = rng.uniform(0, 2 * np.pi, size=n_outer)
+    theta_inner = rng.uniform(0, 2 * np.pi, size=n_inner)
+
+    # radii with Gaussian noise
+    ro = r_outer + rng.normal(0.0, noise_outer, size=n_outer)
+    ri = r_inner + rng.normal(0.0, noise_inner, size=n_inner)
+
+    X_outer = np.column_stack([cx + ro * np.cos(theta_outer), cy + ro * np.sin(theta_outer)])
+    X_inner = np.column_stack([cx + ri * np.cos(theta_inner), cy + ri * np.sin(theta_inner)])
+
+    X = np.vstack([X_outer, X_inner])
+    y = np.hstack([np.zeros(n_outer, dtype=int), np.ones(n_inner, dtype=int)])
+
+    # shuffle
+    idx = rng.permutation(n_total)
+    return X[idx], y[idx]
+
+
+def save_concentric_rings_csv(filepath: str, **kwargs):
+    """
+    Save CSV with columns: x1,x2,label  (label 0=outer, 1=inner)
+    """
+    X, y = make_concentric_rings(**kwargs)
+    data = np.column_stack([X, y])
+
+    np.savetxt(
+        filepath,
+        data,
+        delimiter=",",
+        header="x1,x2,label",
+        comments="",
+        fmt="%.6f,%.6f,%d",
+    )
+    return filepath
+
+if __name__ == "__main__s":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Generate linear separable dataset")
     parser.add_argument("--n_samples", type=int, default=200, help="Number of samples per class")
     parser.add_argument("--n_features", type=int, default=8, help="Number of features")
     parser.add_argument("--out_dir", type=str, default="data", help="Output directory")
     parser.add_argument("--no_plot", action="store_true", help="Disable plotting")
-    
+
     args = parser.parse_args()
-    
+
     print("Generating data...")
     X, y = generate_linearly_separable_data(
-        n_samples_per_class=args.n_samples, 
+        n_samples_per_class=args.n_samples,
         n_features=args.n_features
     )
-    
+
     print("Saving data...")
     csv_path = save_dataset_to_csv(X, y, out_dir=args.out_dir)
     print(f"Data saved to: {csv_path}")
-    
+
     if not args.no_plot and args.n_features == 2:
         print("Plotting data...")
         plot_path = plot_2d_dataset(X, y, out_dir=args.out_dir, show=True)
         if plot_path:
             print(f"Plot saved to: {plot_path}")
+
+
+# X, y = make_concentric_rings(
+#     n_total=800,
+#     r_inner=0.40,
+#     r_outer=1.00,
+#     noise_inner=0.06,
+#     noise_outer=0.07,
+#     p_outer=0.71375,
+#     seed=42
+# )
+#
+# save_concentric_rings_csv("concentric_rings.csv", seed=42, n_total=800)
+#
+# plt.scatter(X[y==0,0], X[y==0,1], s=18)
+# plt.scatter(X[y==1,0], X[y==1,1], s=18)
+# plt.axis("equal")
+# plt.show()

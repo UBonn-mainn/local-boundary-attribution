@@ -7,7 +7,7 @@ from .dataset_utils import (
     generate_high_dim_curvy_data,
     load_dataset_from_csv,
     plot_2d_dataset,
-    save_dataset_to_csv,
+    save_dataset_to_csv
 )
 from .load_model import LinearClassifier, SimpleClassifier, load_model
 
@@ -24,4 +24,5 @@ __all__ = [
     "LinearClassifier",
     "SimpleClassifier",
     "load_model",
+    "save_gaussian_ring_dataset_csv"
 ]
