@@ -8,6 +8,13 @@ import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Constants
+# ============================================================================
+NEWTON_CONVERGENCE_TOL: float = 1e-3
+NEWTON_MAX_STEPS: int = 5
+GRADIENT_VANISH_TOL: float = 1e-8
+
 @dataclass
 class BoundarySearchResult:
     x_start: np.ndarray
@@ -54,7 +61,77 @@ class FGSMBoundarySearch:
         x_t = torch.tensor(x_np, dtype=torch.float32, device=self.device).unsqueeze(0)
         return self._predict_class(x_t)
 
+    def _newton_restore(
+        self, 
+        x_in: torch.Tensor, 
+        y_orig: int, 
+        max_steps: int = NEWTON_MAX_STEPS, 
+        tol: float = NEWTON_CONVERGENCE_TOL
+    ) -> Optional[torch.Tensor]:
+        """
+        Uses Newton's method to find the boundary (root of Logit_A - Logit_B = 0).
+        More query-efficient than bisection (approx 2-3 steps vs 10-15).
+        
+        Returns:
+            Tensor on boundary if successful, None if Newton diverged or failed.
+        """
+        x = x_in.clone().detach().to(self.device)
+        
+        for step in range(max_steps):
+            x.requires_grad_(True)
+            with torch.enable_grad():
+                logits = self.model(x)
+                
+                probs = F.softmax(logits, dim=-1)
+                top2 = torch.topk(probs, 2, dim=-1).indices[0]
+                
+                c1, c2 = top2[0].item(), top2[1].item()
+                
+                if c1 == y_orig:
+                    y_enemy = c2
+                else:
+                    y_enemy = c1
+                    
+                score = logits[0, y_orig] - logits[0, y_enemy]
+                
+                # Check convergence
+                if abs(score.item()) < tol:
+                    logger.debug("Newton converged at step %d (score=%.6f)", step + 1, score.item())
+                    return x.detach()
+                    
+                # Newton Step: x_new = x - f(x)/||grad||^2 * grad
+                self.model.zero_grad()
+                score.backward()
+                
+                g = x.grad
+                if g is None:
+                    return None
+                    
+                g_norm_sq = torch.sum(g**2).item()
+                
+                if g_norm_sq < GRADIENT_VANISH_TOL:
+                    logger.debug("Newton: gradient vanished at step %d", step + 1)
+                    return None  # Gradient vanished
+                
+                # Update
+                step_update = (score.item() / g_norm_sq) * g
+                x = x - step_update
+                x = x.detach()
+                
+        # Final check: ensure we haven't diverged too far
+        with torch.no_grad():
+            logits = self.model(x)
+            probs = F.softmax(logits, dim=-1)
+            top2 = torch.topk(probs, 2, dim=-1).indices[0]
+            
+            if y_orig not in top2.tolist():
+                logger.debug("Newton: diverged away from original class")
+                return None  # Diverged too far
+                 
+        return x.detach()
+
     def _bisect_to_boundary(self, x0: np.ndarray, x1: np.ndarray, y0: int) -> np.ndarray:
+        """Binary search refinement between x0 (class y0) and x1 (different class)."""
         lo, hi = x0.copy(), x1.copy()
         for k in range(self.boundary_bisect_steps):
             mid = 0.5 * (lo + hi)
@@ -64,6 +141,35 @@ class FGSMBoundarySearch:
                 hi = mid
             logger.debug("FGSM bisection step %d/%d", k + 1, self.boundary_bisect_steps)
         return 0.5 * (lo + hi)
+
+    def _refine_to_boundary(self, x_start: np.ndarray, x_enemy: np.ndarray, y0: int) -> np.ndarray:
+        """
+        Refine to boundary using Newton first, falling back to bisection if Newton fails.
+        
+        Args:
+            x_start: Starting point (original class y0)
+            x_enemy: Point that crossed boundary (different class)
+            y0: Original class label
+            
+        Returns:
+            Numpy array of the refined boundary point.
+        """
+        # Compute a reasonable starting point for Newton (midpoint)
+        mid = 0.5 * (x_start + x_enemy)
+        mid_tensor = torch.tensor(mid, dtype=torch.float32, device=self.device).unsqueeze(0)
+        
+        # Try Newton first
+        newton_result = self._newton_restore(mid_tensor, y0)
+        
+        if newton_result is not None:
+            logger.info("FGSM boundary refined with Newton method")
+            return newton_result.squeeze(0).cpu().numpy()
+        
+        # Fallback to bisection
+        logger.debug("Newton failed, falling back to bisection")
+        bisect_result = self._bisect_to_boundary(x_start, x_enemy, y0)
+        logger.info("FGSM boundary refined with %d bisection steps", self.boundary_bisect_steps)
+        return bisect_result
 
     def search(self, x: np.ndarray, y: Optional[int] = None) -> BoundarySearchResult:
         x = np.asarray(x, dtype=np.float32)
@@ -131,8 +237,8 @@ class FGSMBoundarySearch:
             logger.warning("FGSM failed to cross boundary after %d retries (max_steps=%d, y0=%s)", self.max_retries, self.max_steps, y0)
             final_x_boundary = x.copy()
         else:
-            final_x_boundary = self._bisect_to_boundary(x, x_enemy_np, y0)
-            logger.info("FGSM boundary refined with %d bisection steps", self.boundary_bisect_steps)
+            # Use Newton with bisection fallback for refinement
+            final_x_boundary = self._refine_to_boundary(x, x_enemy_np, y0)
 
         return BoundarySearchResult(
             x_start=x,

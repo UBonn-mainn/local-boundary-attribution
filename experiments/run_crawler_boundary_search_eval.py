@@ -41,14 +41,14 @@ def main():
 
     # Crawler parameters
     parser.add_argument("--crawler_samples", type=int, default=10, help="Samples per crawler ring")
-    parser.add_argument("--crawler_iter", type=int, default=10, help="Max crawler iterations")
-    parser.add_argument("--crawler_step", type=float, default=0.05, help="Crawler ring radius")
+    parser.add_argument("--crawler_iter", type=int, default=50, help="Max crawler iterations")
+    parser.add_argument("--crawler_step", type=float, default=0.1, help="Crawler ring radius")
     parser.add_argument("--crawler_mode", type=str, default="random", choices=["random", "gradient"],
                         help="Crawler mode: 'random' ring or 'gradient' projection")
     
     # FGSM init parameters (used by crawler for initial boundary point)
-    parser.add_argument("--fgsm_step_size", type=float, default=0.01, help="FGSM step size for crawler init")
-    parser.add_argument("--fgsm_max_iters", type=int, default=50, help="FGSM max iterations for crawler init")
+    parser.add_argument("--fgsm_step_size", type=float, default=0.005, help="FGSM step size for crawler init")
+    parser.add_argument("--fgsm_max_iters", type=int, default=100, help="FGSM max iterations for crawler init")
 
     # Visualization
     parser.add_argument("--vis_dir", type=str, default="results/eval/vis")

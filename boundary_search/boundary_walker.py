@@ -1,6 +1,6 @@
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -8,6 +8,23 @@ from .fgsm import FGSMBoundarySearch
 from .ibs import BoundarySearchResult
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Tolerance thresholds
+NEWTON_CONVERGENCE_TOL: float = 1e-3
+GRADIENT_VANISH_TOL: float = 1e-8
+TANGENT_ZERO_TOL: float = 1e-6
+MIN_STEP_SIZE: float = 1e-5
+
+# Step size multipliers for adaptive stepping
+STEP_MULTIPLIERS: Tuple[float, ...] = (1.0, 2.0)
+
+# Multipliers for finding boundary crossing points
+BOUNDARY_CROSSING_MULTIPLIERS: Tuple[float, ...] = (1.5, 2.0, 3.0, 5.0)
 
 
 class BoundaryCrawler:
@@ -28,16 +45,23 @@ class BoundaryCrawler:
         device: Optional[torch.device] = None,
         fgsm_params: Optional[Dict[str, Any]] = None,
         crawl_params: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> None:
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
         self.model.eval()
         self.fgsm_params = fgsm_params or {}
         
         params = crawl_params or {}
-        self.max_iterations = params.get("max_iterations", 10)
-        self.step_size = params.get("step_size", 0.05)
-        self.bisection_steps = params.get("bisection_steps", 10)
+        self.max_iterations: int = params.get("max_iterations", 10)
+        self.step_size: float = params.get("step_size", 0.05)
+        self.bisection_steps: int = params.get("bisection_steps", 10)
+        
+        # Multi-start FGSM parameters
+        self.n_fgsm_starts: int = params.get("n_fgsm_starts", 5)
+        self.perturbation_radius: float = params.get("perturbation_radius", 0.05)
+        
+        # Random perturbation escape parameters
+        self.stuck_threshold: int = params.get("stuck_threshold", 2)
         
         self.fgsm_searcher = FGSMBoundarySearch(
             model=model, 
@@ -51,7 +75,12 @@ class BoundaryCrawler:
             return x.to(self.device)
         return x
 
-    def _newton_restore(self, x_in: torch.Tensor, y_orig: int, max_steps: int = 5, tol: float = 1e-3) -> Optional[torch.Tensor]:
+    def _predict(self, x: torch.Tensor) -> int:
+        """Get model prediction for a tensor."""
+        with torch.no_grad():
+            return self.model(x).argmax(dim=-1).item()
+
+    def _newton_restore(self, x_in: torch.Tensor, y_orig: int, max_steps: int = 5, tol: float = NEWTON_CONVERGENCE_TOL) -> Optional[torch.Tensor]:
         """
         Uses Newton's method to find the boundary (root of Logit_A - Logit_B = 0).
         More query-efficient than bisection (approx 2-3 steps vs 10-15).
@@ -87,8 +116,8 @@ class BoundaryCrawler:
                 g = x.grad
                 g_norm_sq = torch.sum(g**2).item()
                 
-                if g_norm_sq < 1e-8:
-                    return None # Gradient vanished
+                if g_norm_sq < GRADIENT_VANISH_TOL:
+                    return None  # Gradient vanished
                 
                 # Update
                 step = (score.item() / g_norm_sq) * g
@@ -113,12 +142,8 @@ class BoundaryCrawler:
         x1 = self._to_device(x1)
         x2 = self._to_device(x2)
         
-        with torch.no_grad():
-            logits1 = self.model(x1)
-            pred1 = logits1.argmax(dim=-1).item()
-            
-            logits2 = self.model(x2)
-            pred2 = logits2.argmax(dim=-1).item()
+        pred1 = self._predict(x1)
+        pred2 = self._predict(x2)
         
         if pred1 == pred2:
             return None
@@ -129,7 +154,7 @@ class BoundaryCrawler:
         with torch.no_grad():
             for _ in range(self.bisection_steps):
                 mid = (low + high) / 2
-                pred_mid = self.model(mid).argmax(dim=-1).item()
+                pred_mid = self._predict(mid)
                 if pred_mid == y_ref:
                     low = mid
                 else:
@@ -177,7 +202,7 @@ class BoundaryCrawler:
         v_tan = v - dot * n
         
         # Normalize tangent direction
-        if torch.norm(v_tan) < 1e-6:
+        if torch.linalg.vector_norm(v_tan) < TANGENT_ZERO_TOL:
             logger.debug("Crawler: Already at optimal projection (tangent is zero).")
             return None
             
@@ -189,6 +214,63 @@ class BoundaryCrawler:
         x_candidate_out = x_current + s * v_dir
         
         return x_candidate_out
+
+    def _multi_start_fgsm_init(self, x: np.ndarray, y: Optional[int] = None) -> List[BoundarySearchResult]:
+        """
+        Run FGSM from multiple perturbed starting points and return all successful results.
+        """
+        candidates = []
+        
+        # Try from original point
+        res_orig = self.fgsm_searcher.search(x, y=y)
+        if res_orig.success:
+            candidates.append(res_orig)
+        
+        # Try from perturbed starting points
+        for _ in range(self.n_fgsm_starts - 1):
+            noise = np.random.randn(*x.shape) * self.perturbation_radius
+            x_perturbed = x + noise
+            res = self.fgsm_searcher.search(x_perturbed, y=y)
+            if res.success:
+                candidates.append(res)
+        
+        return candidates
+
+    def _find_boundary_crossing(self, x_orig: torch.Tensor, candidate: torch.Tensor, y_orig: int) -> Optional[torch.Tensor]:
+        """
+        Find a point that crosses the decision boundary along the direction from x_orig through candidate.
+        Returns None if no crossing is found within the search multipliers.
+        """
+        pred_cand = self._predict(candidate)
+        
+        if pred_cand != y_orig:
+            return candidate
+        
+        # Try extending in the same direction
+        diff = candidate - x_orig
+        for mult in BOUNDARY_CROSSING_MULTIPLIERS:
+            c_out = x_orig + diff * mult
+            if self._predict(c_out) != y_orig:
+                return c_out
+        
+        return None
+
+    def _restore_to_boundary(self, candidate: torch.Tensor, x_orig: torch.Tensor, y_orig: int) -> Optional[torch.Tensor]:
+        """
+        Restore a candidate point to the decision boundary.
+        Tries Newton-Raphson first, falls back to bisection if that fails.
+        """
+        # Try Newton-Raphson first (fast)
+        restored = self._newton_restore(candidate, y_orig)
+        if restored is not None:
+            return restored
+        
+        # Fallback to bisection
+        boundary_crossing = self._find_boundary_crossing(x_orig, candidate, y_orig)
+        if boundary_crossing is not None:
+            return self._bisect(x_orig, boundary_crossing, y_orig)
+        
+        return None
 
     def search(self, x: np.ndarray, y: Optional[int] = None) -> BoundarySearchResult:
         """
@@ -203,77 +285,96 @@ class BoundaryCrawler:
         """
         x_tensor = torch.tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
         
-        # 1. Initial Point via FGSM
-        res_fgsm = self.fgsm_searcher.search(x, y=y)
-        if not res_fgsm.success:
-            logger.warning("Crawler: FGSM initialization failed.")
-            return res_fgsm
-            
-        current_boundary = torch.tensor(res_fgsm.x_boundary, dtype=torch.float32, device=self.device).unsqueeze(0)
-        
         # Get original label for reference
         if y is None:
-            with torch.no_grad():
-                y_orig = self.model(x_tensor).argmax(dim=-1).item()
+            y_orig = self._predict(x_tensor)
         else:
             y_orig = y
         
-        best_dist = torch.norm(current_boundary - x_tensor).item()
-        logger.debug(f"Crawler Start: Dist {best_dist:.4f}")
+        # 1. Multi-start FGSM initialization
+        fgsm_candidates = self._multi_start_fgsm_init(x, y=y)
+        
+        if not fgsm_candidates:
+            logger.warning("Crawler: All FGSM initializations failed.")
+            return BoundarySearchResult(
+                x_start=x,
+                x_boundary=x,
+                x_enemy=x,
+                num_steps=0,
+                success=False,
+                meta={"method": "boundary_crawler", "error": "FGSM init failed"}
+            )
+        
+        # Pick closest to original x
+        best_init = min(fgsm_candidates, key=lambda r: np.linalg.norm(r.x_boundary - x))
+        current_boundary = torch.tensor(best_init.x_boundary, dtype=torch.float32, device=self.device).unsqueeze(0)
+        
+        best_dist = torch.linalg.vector_norm(current_boundary - x_tensor).item()
+        logger.debug(f"Crawler Start: Best of {len(fgsm_candidates)} FGSM starts, dist={best_dist:.4f}")
         
         total_steps = 0
         current_step_size = self.step_size
+        no_improve_count = 0
         
         for i in range(self.max_iterations):
             refined_candidates = []
             
-            cand_step = self._projected_step(current_boundary, x_tensor, step_size=current_step_size)
-            
-            if cand_step is None:
-                break # Optimal reached
-            
-            # 2. Refine using Newton-Raphson (Fast)
-            cand_refined = self._newton_restore(cand_step, y_orig)
-            
-            if cand_refined is not None:
-                refined_candidates.append(cand_refined)
-            else:
-                with torch.no_grad():
-                    pred_cand = self.model(cand_step).argmax(dim=-1).item()
-                candidate_to_bisect = None
+            # 2. Adaptive step sizes: try multiple step multipliers
+            for step_mult in STEP_MULTIPLIERS:
+                s = current_step_size * step_mult
+                cand_step = self._projected_step(current_boundary, x_tensor, step_size=s)
                 
-                if pred_cand != y_orig:
-                    candidate_to_bisect = cand_step
-                else:
-                    diff = cand_step - x_tensor
-                    for mult in [1.5, 2.0, 3.0, 5.0]:
-                        c_out = x_tensor + diff * mult
-                        with torch.no_grad():
-                            if self.model(c_out).argmax(dim=-1).item() != y_orig:
-                                candidate_to_bisect = c_out
-                                break
+                if cand_step is None:
+                    continue
                 
-                if candidate_to_bisect is not None:
-                    b = self._bisect(x_tensor, candidate_to_bisect, y_orig)
-                    if b is not None:
-                        refined_candidates.append(b)
-
+                # Restore to boundary (Newton + bisection fallback)
+                cand_refined = self._restore_to_boundary(cand_step, x_tensor, y_orig)
+                if cand_refined is not None:
+                    refined_candidates.append(cand_refined)
+            
+            # Check for all-None steps (optimal reached)
+            if not refined_candidates:
+                logger.debug(f"Crawler Iter {i}: No valid candidates. Stopping.")
+                break
+            
             step_improved = False
             
             for cand in refined_candidates:
-                dist = torch.norm(cand - x_tensor).item()
+                dist = torch.linalg.vector_norm(cand - x_tensor).item()
                 if dist < best_dist:
                     best_dist = dist
                     current_boundary = cand
                     step_improved = True
             
             total_steps += 1
+            
             if step_improved:
                 logger.debug(f"Crawler Iter {i}: Improved dist to {best_dist:.4f}")
+                no_improve_count = 0
             else:
-                current_step_size *= 0.5
-                logger.debug(f"Crawler Iter {i}: No improvement. Reducing step to {current_step_size:.4f}")
-                if current_step_size < 1e-4:
+                no_improve_count += 1
+                
+                # 3. Random perturbation to escape local minima
+                if no_improve_count >= self.stuck_threshold:
+                    logger.debug(f"Crawler Iter {i}: Stuck for {no_improve_count} iters. Applying random perturbation.")
+                    noise = torch.randn_like(current_boundary) * self.perturbation_radius
+                    perturbed = current_boundary + noise
+                    
+                    # Try to restore to boundary
+                    restored = self._restore_to_boundary(perturbed, x_tensor, y_orig)
+                    
+                    if restored is not None:
+                        current_boundary = restored
+                        no_improve_count = 0
+                        logger.debug(f"Crawler Iter {i}: Perturbation applied successfully.")
+                    else:
+                        # Reduce step size if perturbation failed
+                        current_step_size *= 0.5
+                else:
+                    current_step_size *= 0.5
+                    logger.debug(f"Crawler Iter {i}: No improvement. Reducing step to {current_step_size:.4f}")
+                
+                if current_step_size < MIN_STEP_SIZE:
                     logger.debug("Crawler: Step size too small. Stopping.")
                     break
                 
@@ -288,6 +389,7 @@ class BoundaryCrawler:
             meta={
                 "method": "boundary_crawler",
                 "iterations": i + 1,
-                "final_dist": best_dist
+                "final_dist": best_dist,
+                "n_fgsm_starts": len(fgsm_candidates)
             }
         )

@@ -227,7 +227,7 @@ def main():
             plot_2d_boundary_comparison(
                 model=model,
                 x=x_i,
-                b_crawler=np.asarray(fgsm_res.x_boundary, dtype=np.float32) if row["fgsm_success"] else None,
+                b_fgsm=np.asarray(fgsm_res.x_boundary, dtype=np.float32) if row["fgsm_success"] else None,
                 b_gs=np.asarray(gs_res.x_boundary, dtype=np.float32) if row["gs_success"] else None,
                 gs_radius=row["gs_radius_found"] if row["gs_success"] else None,
                 save_path=out_path,
@@ -236,7 +236,7 @@ def main():
                 device=device,
                 title=title,
                 # This will draw a circle centered at x with radius ||x-b_fgsm||:
-                crawler_circle=True,
+                fgsm_circle=True,
                 show_soft_surface=True,
                 soft_mode="p_class1",  # "p_true" | "p_class1" | "p_max"
                 soft_levels=20,
