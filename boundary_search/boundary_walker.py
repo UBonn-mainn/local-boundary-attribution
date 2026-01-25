@@ -202,7 +202,7 @@ class BoundaryCrawler:
         v_tan = v - dot * n
         
         # Normalize tangent direction
-        if torch.norm(v_tan) < TANGENT_ZERO_TOL:
+        if torch.linalg.vector_norm(v_tan) < TANGENT_ZERO_TOL:
             logger.debug("Crawler: Already at optimal projection (tangent is zero).")
             return None
             
@@ -309,7 +309,7 @@ class BoundaryCrawler:
         best_init = min(fgsm_candidates, key=lambda r: np.linalg.norm(r.x_boundary - x))
         current_boundary = torch.tensor(best_init.x_boundary, dtype=torch.float32, device=self.device).unsqueeze(0)
         
-        best_dist = torch.norm(current_boundary - x_tensor).item()
+        best_dist = torch.linalg.vector_norm(current_boundary - x_tensor).item()
         logger.debug(f"Crawler Start: Best of {len(fgsm_candidates)} FGSM starts, dist={best_dist:.4f}")
         
         total_steps = 0
@@ -340,7 +340,7 @@ class BoundaryCrawler:
             step_improved = False
             
             for cand in refined_candidates:
-                dist = torch.norm(cand - x_tensor).item()
+                dist = torch.linalg.vector_norm(cand - x_tensor).item()
                 if dist < best_dist:
                     best_dist = dist
                     current_boundary = cand
