@@ -32,11 +32,21 @@ class BoundaryCrawler:
     Iterative Boundary Crawler using gradient-based manifold descent.
     
     Algorithm:
-    1. Start with an initial boundary point (found via FGSM).
-    2. Iteratively crawl along the decision boundary surface toward the original input.
-    3. Use Newton-Raphson for efficient boundary restoration after each step.
+    1. Targeted FGSM Initialization (per-class boundary search):
+       a. Get model logits at x, rank competing classes by logit gap.
+       b. Select top-k candidate target classes (filtered by max_logit_gap if set).
+       c. For each target class c, run targeted FGSM using logit-difference gradient
+          (maximize logit[c] - logit[y_orig]) to find the boundary with class c.
+       d. If the walk toward class c flips to a different class d first (intercepted),
+          reuse that crossing for class d and skip d's dedicated search.
+       e. Track best (closest) boundary found; prune searches that exceed this distance.
+       f. Scale step budgets: classes with larger logit gaps get fewer steps.
+    2. Pick the closest boundary point from all successful FGSM initializations.
+    3. Iteratively crawl along the decision boundary surface toward the original input
+       using projected gradient steps on the tangent plane.
+    4. Use Newton-Raphson for efficient boundary restoration after each step.
     
-    Runtime Complexity: O(Iterations * (2 Forward + 1 Backward + BisectionSteps))
+    Runtime Complexity: O(TargetClasses * FGSMSteps + CrawlIterations * (2 Forward + 1 Backward + BisectionSteps))
     """
     
     def __init__(
@@ -56,12 +66,13 @@ class BoundaryCrawler:
         self.step_size: float = params.get("step_size", 0.05)
         self.bisection_steps: int = params.get("bisection_steps", 10)
         
-        # Multi-start FGSM parameters
-        self.n_fgsm_starts: int = params.get("n_fgsm_starts", 5)
-        self.perturbation_radius: float = params.get("perturbation_radius", 0.05)
+        # Targeted FGSM initialization parameters
+        self.max_target_classes: int = params.get("max_target_classes", 5)
+        self.max_logit_gap: Optional[float] = params.get("max_logit_gap", None)
         
         # Random perturbation escape parameters
         self.stuck_threshold: int = params.get("stuck_threshold", 2)
+        self.perturbation_radius: float = params.get("perturbation_radius", 0.05)
         
         self.fgsm_searcher = FGSMBoundarySearch(
             model=model, 
@@ -217,22 +228,122 @@ class BoundaryCrawler:
 
     def _multi_start_fgsm_init(self, x: np.ndarray, y: Optional[int] = None) -> List[BoundarySearchResult]:
         """
-        Run FGSM from multiple perturbed starting points and return all successful results.
+        Targeted per-class FGSM initialization.
+        
+        Systematically searches for boundaries with each neighboring class using
+        FGSMBoundarySearch.targeted_search(). Optimizations:
+            - Logit pre-filtering (top-k by logit gap)
+            - Scaled step budgets (closer classes get more steps)
+            - Early termination reuse (intercepted crossings skip redundant searches)
+            - Progressive distance pruning (tighter budget as closer boundaries are found)
+        
+        See FGSMBoundarySearch.targeted_search() for algorithm details.
+        
+        Args:
+            x: Input point as numpy array.
+            y: Optional true label. If None, inferred from model prediction.
+            
+        Returns:
+            List of successful BoundarySearchResult candidates.
         """
+        x_np = np.asarray(x, dtype=np.float32)
+        x_t = torch.tensor(x_np, dtype=torch.float32, device=self.device).unsqueeze(0)
+        
+        # Get original class
+        if y is not None:
+            y_orig = int(y)
+        else:
+            y_orig = self._predict(x_t)
+        
+        # --- Step 1: Logit pre-filtering ---
+        with torch.no_grad():
+            logits = self.model(x_t)
+            num_classes = logits.shape[-1]
+            
+            # Compute logit gaps for all classes relative to y_orig
+            logit_orig = logits[0, y_orig].item()
+            gaps = []
+            for c in range(num_classes):
+                if c == y_orig:
+                    continue
+                gap = logit_orig - logits[0, c].item()
+                gaps.append((c, gap))
+            
+            # Sort by gap ascending (closest boundaries first)
+            gaps.sort(key=lambda x: x[1])
+            
+            # Filter by max_logit_gap if set
+            if self.max_logit_gap is not None:
+                gaps = [(c, g) for c, g in gaps if g <= self.max_logit_gap]
+            
+            # Take top-k candidates
+            target_candidates = gaps[:self.max_target_classes]
+        
+        if not target_candidates:
+            logger.warning("Crawler: No target classes within logit gap threshold.")
+            return []
+        
+        logger.debug(
+            "Targeted FGSM init: y_orig=%d, candidates=%s", 
+            y_orig, [(c, f"{g:.2f}") for c, g in target_candidates]
+        )
+        
+        # --- Step 2-5: Targeted search with optimizations ---
         candidates = []
+        classes_found = set()  # Classes whose boundary we already found (including intercepted)
+        best_dist = float('inf')
         
-        # Try from original point
-        res_orig = self.fgsm_searcher.search(x, y=y)
-        if res_orig.success:
-            candidates.append(res_orig)
+        # Compute max gap for step budget scaling
+        max_gap = target_candidates[-1][1] if target_candidates else 1.0
+        max_gap = max(max_gap, 1e-6)  # Avoid division by zero
         
-        # Try from perturbed starting points
-        for _ in range(self.n_fgsm_starts - 1):
-            noise = np.random.randn(*x.shape) * self.perturbation_radius
-            x_perturbed = x + noise
-            res = self.fgsm_searcher.search(x_perturbed, y=y)
+        for target_class, gap in target_candidates:
+            # Skip if this class was already found via interception
+            if target_class in classes_found:
+                logger.debug("Targeted FGSM: skipping class %d (already found via interception)", target_class)
+                continue
+            
+            # Scaled step budget: closer classes get full budget, farther get less
+            budget_fraction = max(0.2, 1.0 - (gap / max_gap) * 0.8)
+            scaled_steps = max(10, int(self.fgsm_searcher.max_steps * budget_fraction))
+            
+            # Progressive distance pruning: use best_dist as distance budget
+            distance_budget = best_dist if best_dist < float('inf') else None
+            
+            logger.debug(
+                "Targeted FGSM: searching toward class %d (gap=%.2f, steps=%d, dist_budget=%s)",
+                target_class, gap, scaled_steps, f"{distance_budget:.4f}" if distance_budget else "None"
+            )
+            
+            res = self.fgsm_searcher.targeted_search(
+                x_np, 
+                y_orig=y_orig, 
+                target_class=target_class,
+                max_steps=scaled_steps,
+                distance_budget=distance_budget,
+            )
+            
             if res.success:
+                dist = np.linalg.norm(res.x_boundary - x_np)
                 candidates.append(res)
+                classes_found.add(target_class)
+                
+                # Update best distance for progressive pruning
+                if dist < best_dist:
+                    best_dist = dist
+                    logger.debug("Targeted FGSM: new best_dist=%.4f (class %d)", best_dist, target_class)
+                
+                # Reuse intercepted crossings
+                intercepted = res.meta.get("intercepted_class")
+                if intercepted is not None and intercepted not in classes_found:
+                    classes_found.add(intercepted)
+                    logger.debug("Targeted FGSM: class %d found via interception (target was %d)", 
+                                intercepted, target_class)
+        
+        logger.info(
+            "Targeted FGSM init complete: %d/%d candidates successful, best_dist=%.4f",
+            len(candidates), len(target_candidates), best_dist
+        )
         
         return candidates
 

@@ -257,6 +257,161 @@ class FGSMBoundarySearch:
             },
         )
 
+    def targeted_search(
+        self, 
+        x: np.ndarray, 
+        y_orig: int, 
+        target_class: int,
+        max_steps: Optional[int] = None,
+        distance_budget: Optional[float] = None,
+    ) -> BoundarySearchResult:
+        """
+        Targeted FGSM boundary search toward a specific class using logit-difference gradient.
+        
+        Instead of using cross-entropy loss (which pushes away from y_orig toward any class),
+        this method maximizes logit[target_class] - logit[y_orig], driving the sample
+        directly toward the decision boundary with target_class.
+        
+        Algorithm:
+            At each step, compute the logit difference score:
+                score = logit[target_class] - logit[y_orig]
+            
+            Then take a signed gradient step to ascend this score:
+                x_next = x + step_size * sign(grad(score, x))
+            
+            This is geometrically equivalent to following the gradient of the logit margin,
+            which points directly toward the boundary between y_orig and target_class.
+            Unlike cross-entropy (which implicitly applies softmax and distributes gradient
+            across all classes), the logit-difference gradient is a direct, unsmoothed signal
+            that targets one specific decision boundary.
+        
+        Optimization features:
+            - Early termination on wrong-class flip: If stepping toward target_class causes
+              the prediction to flip to a different class d != target_class, the search stops
+              immediately. This means target_class's boundary is farther away in this direction
+              and class d's boundary was closer. The intercepted crossing is returned and the
+              intercepted class is recorded in meta['intercepted_class']. The caller can reuse
+              this crossing to skip a dedicated search for class d.
+            - Distance budget (progressive pruning): If distance_budget is set, the search
+              stops once the current point is farther from x than distance_budget. This allows
+              the caller to set increasingly tight budgets as closer boundaries are found.
+        
+        Args:
+            x: Input point as numpy array.
+            y_orig: Original class label of x.
+            target_class: The class whose boundary we want to find.
+            max_steps: Override max_steps for this search (for scaled step budgets).
+            distance_budget: If set, prune search when distance from x exceeds this.
+            
+        Returns:
+            BoundarySearchResult with meta containing:
+                - 'target_class': the class we were targeting
+                - 'intercepted_class': if a different class was hit first (None otherwise)
+        """
+        x = np.asarray(x, dtype=np.float32)
+        steps_to_use = max_steps if max_steps is not None else self.max_steps
+
+        logger.debug("Targeted FGSM search start (y_orig=%s, target=%s, dim=%s)", y_orig, target_class, x.shape)
+
+        x_t = torch.tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
+        
+        success = False
+        x_enemy_np = None
+        steps_taken = 0
+        final_x_boundary = x.copy()
+        intercepted_class = None
+        
+        current_step_size = self.step_size
+
+        for attempt in range(self.max_retries + 1):
+            if attempt > 0:
+                logger.info(f"Targeted FGSM retry {attempt}/{self.max_retries}: doubling step size to {current_step_size:.4f}")
+            
+            x_adv = x_t.clone().detach().requires_grad_(True)
+            flipped = False
+            
+            for step in range(steps_to_use):
+                steps_taken = step + 1
+                logits = self.model(x_adv)
+                
+                # Logit-difference objective: maximize logit[target] - logit[y_orig]
+                # We compute score and ascend its gradient
+                score = logits[0, target_class] - logits[0, y_orig]
+
+                self.model.zero_grad(set_to_none=True)
+                if x_adv.grad is not None:
+                    x_adv.grad.zero_()
+                score.backward()
+
+                with torch.no_grad():
+                    if x_adv.grad is None:
+                         grad_sign = torch.zeros_like(x_adv)
+                    else:
+                         grad_sign = x_adv.grad.sign()
+                         
+                    # Ascend: move in direction that increases target logit relative to orig
+                    x_next = x_adv + current_step_size * grad_sign
+                    if self.clamp is not None:
+                        lo, hi = self.clamp
+                        x_next = torch.clamp(x_next, lo, hi)
+
+                y_next = self._predict_class(x_next)
+                logger.debug("Targeted FGSM iter %d/%d: pred=%s score=%.6f (target=%s)", 
+                            steps_taken, steps_to_use, y_next, float(score.item()), target_class)
+
+                if y_next != y_orig:
+                    success = True
+                    flipped = True
+                    x_enemy_np = x_next.detach().squeeze(0).cpu().numpy()
+                    
+                    if y_next == target_class:
+                        logger.info("Targeted FGSM: reached target class %s at iter %d", target_class, steps_taken)
+                    else:
+                        # Early termination: hit a different class boundary first
+                        intercepted_class = y_next
+                        logger.info("Targeted FGSM: intercepted class %s (target was %s) at iter %d", 
+                                   y_next, target_class, steps_taken)
+                    break
+                
+                # Distance budget check (progressive pruning)
+                if distance_budget is not None:
+                    dist = torch.linalg.vector_norm(x_next - x_t).item()
+                    if dist > distance_budget:
+                        logger.debug("Targeted FGSM: exceeded distance budget %.4f at iter %d", distance_budget, steps_taken)
+                        break
+
+                x_adv = x_next.detach().requires_grad_(True)
+            
+            if flipped:
+                break
+                
+            current_step_size *= 2.0
+
+        if not success:
+            logger.warning("Targeted FGSM failed to cross boundary (y_orig=%s, target=%s)", y_orig, target_class)
+            final_x_boundary = x.copy()
+        else:
+            final_x_boundary = self._refine_to_boundary(x, x_enemy_np, y_orig)
+
+        return BoundarySearchResult(
+            x_start=x,
+            x_boundary=final_x_boundary,
+            x_enemy=x_enemy_np,
+            num_steps=steps_taken,
+            success=success,
+            meta={
+                "method": "targeted_fgsm",
+                "target_class": target_class,
+                "intercepted_class": intercepted_class,
+                "step_size": self.step_size,
+                "final_step_size": current_step_size,
+                "max_steps": steps_to_use,
+                "bisect_steps": self.boundary_bisect_steps,
+                "clamp": self.clamp,
+                "retries": attempt if success else self.max_retries,
+            },
+        )
+
 
 @torch.no_grad()
 def _predict_class(model: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:

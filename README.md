@@ -28,11 +28,8 @@ For every input sample \(x\), we compute a point \(x'\) such that:
 
 We then compute attributions using \(x'\) as a **baseline** or **reference input**.
 
-Algorithms implemented include:
+### Our algorithm:
 
-- Informed Baseline Search (IBS) — Morasso et al., 2025  
-- FGSM-based boundary search — Goodfellow et al., 2014  
-- CMA-ES optimization — Nomura & Shibata, 2024  
 
 Evaluation follows:
 
@@ -58,15 +55,7 @@ repo/
 ## Features
 
 ### Decision Boundary Search  
-- FGSM (gradient-based)  
-- IBS algorithm  
-- CMA-ES for black-box search  
-
-### Attribution Methods  
-- Integrated Gradients (with custom baselines)  
-- KernelSHAP (reference alternatives)  
-- LIME (local perturbation baselines)  
-- Saliency / Gradient × Input  
+- FGSM (gradient-based)
 
 ### Evaluation Suite  
 - Local stability  
@@ -127,21 +116,3 @@ pip install -r requirements.txt
 - Müller et al., Rashomon Effect in XAI, 2023  
 - Nauta et al., Co-12 Quantitative Evaluation of Explainability, 2023  
 
-## Roadmap
-
-### Phase 1 — Boundary Search
-- Implement IBS  
-- Implement FGSM boundary search  
-- Add CMA-ES optimizer for refinement  
-- Add distance minimization objective  
-
-### Phase 2 — Attribution
-- IG with decision-boundary baseline  
-- SHAP experiments with DB baselines  
-- LIME experiments with DB baselines  
-
-### Phase 3 — Evaluation
-- Stability & repeatability  
-- Inter-method disagreement metrics  
-- Co-12 metrics  
-- Final visualisation suite  
