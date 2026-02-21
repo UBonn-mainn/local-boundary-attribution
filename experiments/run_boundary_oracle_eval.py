@@ -236,7 +236,6 @@ def main():
                 device=device,
                 title=title,
                 # This will draw a circle centered at x with radius ||x-b_fgsm||:
-                fgsm_circle=True,
                 show_soft_surface=True,
                 soft_mode="p_class1",  # "p_true" | "p_class1" | "p_max"
                 soft_levels=20,
