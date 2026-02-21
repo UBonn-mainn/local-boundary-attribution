@@ -85,9 +85,7 @@ if __name__ == '__main__':
             )
             all_rows.append(row)
 
-        out_path = root_directory + "/data_wgs.csv"
+        out_path = folder + "/data_wgs.csv"
         out_df = pd.DataFrame(all_rows)
         out_df.to_csv(out_path, index=False)
         logger.info("Wrote aggregated GS results to: %s (rows=%d)", out_path, len(out_df))
-
-        break
