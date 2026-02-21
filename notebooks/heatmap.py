@@ -3,27 +3,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Load dataset
-df = pd.read_csv("/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/eval/concentric_rings/fgsm_vs_gs_concentric_rings.csv")
+df = pd.read_csv("/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/8d_10class/report.csv")
 
 numeric_df = df.select_dtypes(include=[np.number])
-numeric_df["dist_radii"] = abs(numeric_df["ring_r_max"] - numeric_df["ring_r_min"])
+numeric_df["radii"] = abs(numeric_df["ring_r_max"] - numeric_df["ring_r_min"])
 
 
 # (Optional) focus on key FGSM vs GS variables
 cols_of_interest = [
-    "fgsm_steps",
+    # "fgsm_steps",
     "gs_radius_found",
-    "dist_x_to_fgsm_boundary",
-    "dist_x_to_gs_boundary",
-    "dist_fgsm_boundary_to_gs_boundary",
-    "angle_x_fgsm_gs_deg",
-    "curve_circle_area",
+    "dist_x_to_crawler",
+    "dist_x_to_gs",
+    "dist_crawler_to_gs",
+    "angle_x_crawler_gs_deg",
+    "sphere_vol",
     "ring_n",
     "ring_r_min",
     "ring_r_max",
-    "ring_count_y0",
-    "ring_count_y1",
-    "dist_radii"
+    # "ring_count_y0",
+    # "ring_count_y1",
+    "radii"
 ]
 
 numeric_df = numeric_df[cols_of_interest]
@@ -105,4 +105,5 @@ for i in range(len(corr.columns)):
 
 ax.set_title("Correlation Matrix with Values")
 plt.tight_layout()
+plt.savefig("8d_10class_heatmap.png")
 plt.show()
