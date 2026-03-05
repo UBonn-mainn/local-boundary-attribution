@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 
 def generate_linearly_separable_data(
@@ -544,15 +545,66 @@ def load_dataset_from_csv(csv_path: str | Path) -> Tuple[np.ndarray, np.ndarray]
     return X, y
 
 
+def load_dataset(csv_path: str | Path,     dataset_type: str=None,
+    n_features: int = None,
+    n_samples_per_class: int = 200,
+    random_state: int = 42) -> tuple[Any, Any, Any, Any, Any, Any, Any, Any, Any]:
+    """
+    Load a dataset from a CSV file.
+    Assumes the last column is the target variable.
+
+    Parameters
+    ----------
+    csv_path : str or Path
+        Path to the CSV file.
+
+    Returns
+    -------
+    X : np.ndarray
+        Feature matrix.
+    y : np.ndarray
+        Label vector.
+    """
+    metadata = {
+        "dataset_type": dataset_type,
+        "n_features": n_features,
+        "n_samples_per_class": n_samples_per_class,
+        "random_state": random_state,
+    }
+
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Data file not found at {csv_path}")
+
+    # Load CSV using numpy, skipping header
+    data = pd.read_csv(csv_path).values
+    num_feature = data[0, 0]
+    metadata["n_classes"] = num_feature
+
+    # Split into X and y. Assumes last column is class.
+    X = data[:, 1:num_feature + 1].astype(np.float32)
+    y = data[:, num_feature + 1].astype(np.float32)
+    gs_success = data[:, num_feature + 2]
+    gs_radius = data[:, num_feature + 3]
+    x_enemy = data[:, num_feature + 4:2 * num_feature + 4]
+    x_boundary = data[:, 2 * num_feature + 4:3 * num_feature + 4]
+    dist_x0_enemy = data[:, 3 * num_feature + 4]
+    dist_x0_boundary = data[:, 3 * num_feature + 5]
+
+    metadata["total_samples"] = len(X)
+
+    return X, y, metadata, gs_success, gs_radius, x_enemy, x_boundary, dist_x0_enemy, dist_x0_boundary
+
+
 def make_concentric_rings(
-    n_total=800,
-    center=(0.0, 0.0),
-    r_inner=0.40,
-    r_outer=1.00,
-    noise_inner=0.06,
-    noise_outer=0.07,
-    p_outer=0.71375,   # matches your screenshot ratio for class 0 (outer)
-    seed=None,
+        n_total=800,
+        center=(0.0, 0.0),
+        r_inner=0.40,
+        r_outer=1.00,
+        noise_inner=0.06,
+        noise_outer=0.07,
+        p_outer=0.71375,  # matches your screenshot ratio for class 0 (outer)
+        seed=None,
 ):
     """
     Two concentric rings with the SAME center.
@@ -609,6 +661,7 @@ def save_concentric_rings_csv(filepath: str, **kwargs):
     )
     return filepath
 
+
 if __name__ == "__main__s":
     import argparse
 
@@ -635,7 +688,6 @@ if __name__ == "__main__s":
         plot_path = plot_2d_dataset(X, y, out_dir=args.out_dir, show=True)
         if plot_path:
             print(f"Plot saved to: {plot_path}")
-
 
 # X, y = make_concentric_rings(
 #     n_total=800,
