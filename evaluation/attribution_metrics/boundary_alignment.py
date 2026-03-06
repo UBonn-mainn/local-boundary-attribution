@@ -1,7 +1,8 @@
 import torch
 
-from utils.common.evaluation import to_2d
+import torch.nn.functional as F
 
+from utils.common.evaluation import to_2d
 
 def boundary_alignment_cosine(
     attr: torch.Tensor,

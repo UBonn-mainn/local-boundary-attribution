@@ -2,6 +2,7 @@ from typing import Optional
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from utils.common.evaluation import get_target_from_logits, to_2d, select_logit
 

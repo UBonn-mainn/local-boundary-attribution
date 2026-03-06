@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 
 import torch
 
@@ -27,7 +27,7 @@ def get_target_from_logits(logits: torch.Tensor) -> torch.Tensor:
     return logits.argmax(dim=-1)
 
 
-def select_logit(logits: torch.Tensor, target: torch.Tensor | int) -> torch.Tensor:
+def select_logit(logits: torch.Tensor, target: Any) -> torch.Tensor:
     """
     Returns selected logit for each sample:
     - logits: (B,C) -> (B,)

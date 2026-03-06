@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 from utils.common.file_utils import find_data_csv_folders
+from utils.models.train_linear_model import train_model_memory
 from utils.models.train_mlp_model import train_mlp_model_memory
 
 if __name__ == '__main__':
@@ -22,7 +23,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     root_directory = args.root_directory
-    epochs = args.epoch
+    epochs = args.epochs
     batch_size = args.batch_size
     lr = args.lr
     seed = args.seed
@@ -30,12 +31,14 @@ if __name__ == '__main__':
     folders = find_data_csv_folders(root_directory)
 
     for folder in folders:
-        print(folder + "/data.csv")
-        train_mlp_model_memory(
-            data_path=folder + "/data.csv",
-            epochs=epochs,
-            batch_size=batch_size,
-            lr=lr,
-            seed=seed,
-            save_path=folder + "/mlp_model.pth"
-        )
+        if 'linear_blobs' in folder:
+            print(folder + "/data.csv")
+            train_model_memory(
+            # train_mlp_model_memory(
+                data_path=folder + "/data.csv",
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+                seed=seed,
+                save_path=folder + "/model.pth"
+            )

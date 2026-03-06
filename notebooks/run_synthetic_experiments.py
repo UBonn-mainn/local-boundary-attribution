@@ -17,8 +17,11 @@ Model Selection:
 Results are saved in organized folders under /results/synthetic_experiments/
 with config.json documenting all parameters used.
 """
-
+import logging
 import os
+
+from utils.common.file_utils import collect_synthetic_experiments_map
+
 # Fix OpenMP duplicate library error (MKL + PyTorch both load libiomp5md.dll)
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -36,6 +39,12 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+logging.basicConfig(
+    level=logging.INFO,  # switch to DEBUG when you need details
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 from utils.data.dataset_utils import (
     generate_linearly_separable_data,
     generate_moons_data,
@@ -43,7 +52,7 @@ from utils.data.dataset_utils import (
     generate_multiclass_blobs_data,
     generate_high_dim_curvy_data,
     generate_concentric_hyperspheres_data,
-    save_dataset_to_csv,
+    save_dataset_to_csv, load_dataset,
 )
 from utils.models.train_mlp_model import train_mlp_model_memory
 from utils.models.train_linear_model import train_model_memory as train_linear_model_memory
@@ -261,14 +270,14 @@ def run_boundary_search_eval(
     
     cmd = [
         sys.executable,
-        str(PROJECT_ROOT / "experiments" / "run_crawler_boundary_search_eval.py"),
+        str(PROJECT_ROOT / "experiments" / "run_crawler_boundary_search_eval_wogs.py"),
         "--data_path", str(data_path),
         "--model_path", str(model_path),
         "--model_type", model_type,
         "--save_dir", str(save_dir),
         "--num_classes", str(num_classes),
-        "--gs_r_max", str(params["gs_r_max"]),
-        "--gs_dirs", str(params["gs_dirs"]),
+        # "--gs_r_max", str(params["gs_r_max"]),
+        # "--gs_dirs", str(params["gs_dirs"]),
         "--fgsm_max_iters", str(params["max_iters"]),
         "--fgsm_step_size", str(params["step_size"]),
         "--vis_dir", str(Path(save_dir) / "vis"),
@@ -283,7 +292,7 @@ def run_boundary_search_eval(
         "fgsm_step_size": params["step_size"],
     }
     
-    print(f"Running: {' '.join(cmd)}")
+    logger.info(f"Running: {' '.join(cmd)}")
     
     # Pass PYTHONPATH so subprocess can find project modules
     env = os.environ.copy()
@@ -292,13 +301,13 @@ def run_boundary_search_eval(
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     
     if result.returncode != 0:
-        print(f"ERROR: Boundary search failed!")
-        print(f"STDOUT: {result.stdout}")
-        print(f"STDERR: {result.stderr}")
+        logger.info(f"ERROR: Boundary search failed!")
+        logger.info(f"STDOUT: {result.stdout}")
+        logger.info(f"STDERR: {result.stderr}")
         raise RuntimeError(f"Boundary search evaluation failed: {result.stderr[:500]}")
     else:
         metadata["success"] = True
-        print(result.stdout)
+        logger.info(result.stdout)
     
     return metadata
 
@@ -306,9 +315,11 @@ def run_boundary_search_eval(
 def run_experiment(
     dataset_type: str,
     n_features: int,
+    n_classes: int,
     base_results_dir: Path,
     n_samples_per_class: int = 200,
     random_state: int = 42,
+    data_path='/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/15d_moons/data_wgs.csv',
     skip_eval: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -318,9 +329,9 @@ def run_experiment(
     experiment_dir = base_results_dir / experiment_name
     experiment_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"\n{'='*60}")
-    print(f"Running experiment: {experiment_name}")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Running experiment: {experiment_name}")
+    logger.info(f"{'='*60}")
     
     config = {
         "experiment_name": experiment_name,
@@ -330,64 +341,70 @@ def run_experiment(
     }
     
     # Step 1: Generate dataset
-    print(f"\n[1/3] Generating dataset...")
-    X, y, dataset_metadata = generate_dataset(
-        dataset_type=dataset_type,
+    logger.info(f"\n[1/3] Generating dataset...")
+    # X, y, dataset_metadata = generate_dataset(
+    #     dataset_type=dataset_type,
+    #     n_features=n_features,
+    #     n_samples_per_class=n_samples_per_class,
+    #     random_state=random_state,
+    # )
+    X, y, dataset_metadata, gs_success, gs_radius, x_enemy, x_boundary, dist_x0_enemy, dist_x0_boundary = load_dataset(csv_path=data_path,dataset_type=dataset_type,
         n_features=n_features,
         n_samples_per_class=n_samples_per_class,
-        random_state=random_state,
-    )
+        random_state=random_state)
     config["dataset"] = dataset_metadata
     
     # Save dataset
-    data_path = experiment_dir / "data.csv"
+    data_path = experiment_dir / "data_wgs.csv"
     save_dataset_to_csv(X, y, out_dir=experiment_dir, prefix="data", timestamp="")
     # Rename to consistent name
     generated_files = list(experiment_dir.glob("data_*.csv"))
     if generated_files:
         generated_files[0].rename(data_path)
-    print(f"  Dataset saved to: {data_path}")
-    print(f"  Shape: X={X.shape}, y={y.shape}, classes={len(np.unique(y))}")
+    logger.info(f"  Dataset saved to: {data_path}")
+    logger.info(f"  Shape: X={X.shape}, y={y.shape}, classes={len(np.unique(y))}")
     
     # Step 2: Train model
-    print(f"\n[2/3] Training model...")
+    logger.info(f"\n[2/3] Training model...")
+    # model_type = "linear" if dataset_type == "linear_blobs" else "mlp"
     model_type = "linear" if dataset_type == "linear_blobs" else "mlp"
-    model_path = experiment_dir / f"{model_type}_model.pth"
+    t = "" if dataset_type == "linear_blobs" else "mlp_"
+    model_path = experiment_dir / f"{t}model.pth"
     
-    training_params = DIMENSION_PARAMS.get(n_features, DIMENSION_PARAMS[2])
+    # training_params = DIMENSION_PARAMS.get(n_features, DIMENSION_PARAMS[2])
     
-    training_metadata = train_model(
-        X=X,
-        y=y,
-        model_type=model_type,
-        save_path=str(model_path),
-        epochs=training_params["training_epochs"],
-        seed=random_state,
-    )
-    config["training"] = training_metadata
-    print(f"  Model saved to: {model_path}")
+    # training_metadata = train_model(
+    #     X=X,
+    #     y=y,
+    #     model_type=model_type,
+    #     save_path=str(model_path),
+    #     epochs=training_params["training_epochs"],
+    #     seed=random_state,
+    # )
+    # config["training"] = training_metadata
+    # logger.info(f"  Model saved to: {model_path}")
     
     # Step 3: Run boundary search evaluation
     if not skip_eval:
-        print(f"\n[3/3] Running boundary search evaluation...")
+        logger.info(f"\n[3/3] Running boundary search evaluation...")
         eval_metadata = run_boundary_search_eval(
             data_path=str(data_path),
             model_path=str(model_path),
             model_type=model_type,
             save_dir=str(experiment_dir),
             n_features=n_features,
-            num_classes=dataset_metadata["n_classes"],
+            num_classes=n_classes,
         )
         config["evaluation"] = eval_metadata
     else:
-        print(f"\n[3/3] Skipping boundary search evaluation (--skip-eval)")
+        logger.info(f"\n[3/3] Skipping boundary search evaluation (--skip-eval)")
         config["evaluation"] = {"skipped": True}
     
     # Save config
     config_path = experiment_dir / "config.json"
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
-    print(f"\nConfig saved to: {config_path}")
+    logger.info(f"\nConfig saved to: {config_path}")
     
     return config
 
@@ -411,19 +428,24 @@ Examples:
   python run_synthetic_experiments.py --skip-eval
         """
     )
-    
+
+    parser.add_argument("--data_path", type=str, required=False,
+                        default="/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/2d_3class/data_wgs.csv",
+                        help="Path to input CSV file")
     parser.add_argument(
         "--dimensions",
         type=int,
         nargs="+",
-        default=DIMENSIONS,
+        # default=DIMENSIONS,
+        default=[2],
         help=f"Dimensions to run experiments for (default: {DIMENSIONS})"
     )
     parser.add_argument(
         "--types",
         type=str,
         nargs="+",
-        default=DATASET_TYPES,
+        # default=DATASET_TYPES,
+        default=['3class'],
         choices=DATASET_TYPES,
         help=f"Dataset types to run (default: {DATASET_TYPES})"
     )
@@ -457,46 +479,75 @@ Examples:
     base_results_dir = Path(args.results_dir)
     base_results_dir.mkdir(parents=True, exist_ok=True)
     
-    print("=" * 60)
-    print("Synthetic Experiments Pipeline")
-    print("=" * 60)
-    print(f"Dimensions: {args.dimensions}")
-    print(f"Dataset types: {args.types}")
-    print(f"Results directory: {base_results_dir}")
-    print(f"Samples per class: {args.n_samples}")
-    print(f"Random seed: {args.seed}")
-    print(f"Boundary search method: crawler")
-    print(f"Skip evaluation: {args.skip_eval}")
+    logger.info("=" * 60)
+    logger.info("Synthetic Experiments Pipeline")
+    logger.info("=" * 60)
+    logger.info(f"Dimensions: {args.dimensions}")
+    logger.info(f"Dataset types: {args.types}")
+    logger.info(f"Results directory: {base_results_dir}")
+    logger.info(f"Samples per class: {args.n_samples}")
+    logger.info(f"Random seed: {args.seed}")
+    logger.info(f"Boundary search method: crawler")
+    logger.info(f"Skip evaluation: {args.skip_eval}")
     
     # Count total experiments
     total_experiments = len(args.dimensions) * len(args.types)
-    print(f"\nTotal experiments to run: {total_experiments}")
+    logger.info(f"\nTotal experiments to run: {total_experiments}")
     
     # Run experiments
     all_configs = []
     completed = 0
     failed = 0
+
+    datasets = collect_synthetic_experiments_map()
+
+    for dataset in datasets.keys():
+        if dataset != '15d_moons':
+            continue
+        dim = datasets[dataset]["dimension"]
+        dtype = datasets[dataset]["dataset_type"]
+        n_classes = datasets[dataset]["n_classes"]
+        try:
+            config = run_experiment(
+                dataset_type=dtype,
+                n_features=dim,
+                base_results_dir=base_results_dir,
+                n_samples_per_class=args.n_samples,
+                random_state=args.seed,
+                skip_eval=args.skip_eval,
+                n_classes=n_classes
+            )
+            all_configs.append(config)
+            completed += 1
+        except RuntimeError:
+            raise  # Re-raise to stop pipeline on boundary search failures
+        except Exception as e:
+            logger.info(f"\nERROR in {dim}d_{dtype}: {e}")
+            import traceback
+            traceback.print_exc()
+            failed += 1
+
     
-    for dim in args.dimensions:
-        for dtype in args.types:
-            try:
-                config = run_experiment(
-                    dataset_type=dtype,
-                    n_features=dim,
-                    base_results_dir=base_results_dir,
-                    n_samples_per_class=args.n_samples,
-                    random_state=args.seed,
-                    skip_eval=args.skip_eval,
-                )
-                all_configs.append(config)
-                completed += 1
-            except RuntimeError:
-                raise  # Re-raise to stop pipeline on boundary search failures
-            except Exception as e:
-                print(f"\nERROR in {dim}d_{dtype}: {e}")
-                import traceback
-                traceback.print_exc()
-                failed += 1
+    # for dim in args.dimensions:
+    #     for dtype in args.types:
+    #         try:
+    #             config = run_experiment(
+    #                 dataset_type=dtype,
+    #                 n_features=dim,
+    #                 base_results_dir=base_results_dir,
+    #                 n_samples_per_class=args.n_samples,
+    #                 random_state=args.seed,
+    #                 skip_eval=args.skip_eval,
+    #             )
+    #             all_configs.append(config)
+    #             completed += 1
+    #         except RuntimeError:
+    #             raise  # Re-raise to stop pipeline on boundary search failures
+    #         except Exception as e:
+    #             logger.info(f"\nERROR in {dim}d_{dtype}: {e}")
+    #             import traceback
+    #             traceback.print_exc()
+    #             failed += 1
     
     # Save summary
     summary = {
@@ -511,12 +562,12 @@ Examples:
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
     
-    print("\n" + "=" * 60)
-    print("Pipeline Complete!")
-    print("=" * 60)
-    print(f"Completed: {completed}/{total_experiments}")
-    print(f"Failed: {failed}/{total_experiments}")
-    print(f"Summary saved to: {summary_path}")
+    logger.info("\n" + "=" * 60)
+    logger.info("Pipeline Complete!")
+    logger.info("=" * 60)
+    logger.info(f"Completed: {completed}/{total_experiments}")
+    logger.info(f"Failed: {failed}/{total_experiments}")
+    logger.info(f"Summary saved to: {summary_path}")
 
 
 if __name__ == "__main__":

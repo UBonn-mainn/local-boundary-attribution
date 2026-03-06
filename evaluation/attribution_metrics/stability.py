@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+import numpy as np
 import torch
 
 from utils.common.evaluation import to_2d

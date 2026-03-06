@@ -23,11 +23,11 @@ if __name__ == '__main__':
     parser.add_argument("--model_type", type=str, default="mlp", choices=["mlp", "linear"])
 
     # GS oracle params
-    parser.add_argument("--gs_dirs", type=int, default=1024)
-    parser.add_argument("--gs_r_init", type=float, default=0.2)
-    parser.add_argument("--gs_r_step", type=float, default=0.05)
-    parser.add_argument("--gs_r_max", type=float, default=16.0)
-    parser.add_argument("--gs_bisect_steps", type=int, default=35)
+    parser.add_argument("--gs_dirs", type=int, default=4096)
+    parser.add_argument("--gs_r_init", type=float, default=0.7)
+    parser.add_argument("--gs_r_step", type=float, default=0.35)
+    parser.add_argument("--gs_r_max", type=float, default=40.0)
+    parser.add_argument("--gs_bisect_steps", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
 
     args = parser.parse_args()
@@ -38,12 +38,16 @@ if __name__ == '__main__':
     root_directory = args.root_directory
     folders = find_data_csv_folders(root_directory)
 
-    all_rows = []
-
     for folder in folders:
+        all_rows = []
         logging.info(folder)
+        if folder.startswith('/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/2d_3class'):
+            continue
+        # if '15d_moons' not in folder:
+        #     continue
         data_path = folder + '/data.csv'
-        model_path = folder + '/mlp_model.pth'
+        model_path = folder + ('/model.pth' if 'linear_blobs' in folder else '/mlp_model.pth')
+        model_type = 'linear' if 'linear_blobs' in folder else 'mlp'
 
         X, y = load_dataset_from_csv(data_path)  # X: (N,d), y: (N,)
         X = np.asarray(X, dtype=np.float32)
@@ -52,7 +56,8 @@ if __name__ == '__main__':
         d = X.shape[1]
         num_classes = int(len(np.unique(y)))
 
-        model = load_model(model_path, model_type=args.model_type, input_dim=d, num_classes=num_classes)
+        # model = load_model(model_path, model_type=args.model_type, input_dim=d, num_classes=num_classes)
+        model = load_model(model_path, model_type=model_type, input_dim=d, num_classes=num_classes)
         # model = load_model(model_path, model_type=args.model_type)
         model = model.to(device)
         model.eval()
