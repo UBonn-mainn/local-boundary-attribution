@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from evaluation import GrowingSpheresOracle
+from evaluation.growing_spheres_oracle import GrowingSpheresOracle
 from utils import load_dataset_from_csv, load_model
 from utils.common.file_utils import find_data_csv_folders, to_row
 
@@ -24,8 +24,8 @@ if __name__ == '__main__':
 
     # GS oracle params
     parser.add_argument("--gs_dirs", type=int, default=4096)
-    parser.add_argument("--gs_r_init", type=float, default=0.7)
-    parser.add_argument("--gs_r_step", type=float, default=0.35)
+    parser.add_argument("--gs_r_init", type=float, default=0.0)
+    parser.add_argument("--gs_r_step", type=float, default=0.005)
     parser.add_argument("--gs_r_max", type=float, default=40.0)
     parser.add_argument("--gs_bisect_steps", type=int, default=30)
     parser.add_argument("--seed", type=int, default=0)
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     for folder in folders:
         all_rows = []
         logging.info(folder)
-        if folder.startswith('/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/2d_3class'):
+        if folder.startswith('/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/2d_'):
             continue
         # if '15d_moons' not in folder:
         #     continue

@@ -145,7 +145,7 @@ def run_attribution_eval(
         "--vis_dir", str(exp_dir / "vis"),
         "--vis_points", str(vis_points),
         "--sphere_samples", str(sphere_samples),
-        "--attr_method", str(attr_method),
+        # "--attr_method", ('lime'),
         "--ig_steps", str(ig_steps),
         "--topk", str(topk),
     ]
