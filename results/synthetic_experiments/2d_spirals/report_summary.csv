@@ -1,7 +1,0 @@
-dataset,method,baseline,n,success_rate,sensitivity_mean,stability_lipschitz_mean,stability_mean_attr_change_mean,fidelity_del_auc_mean,fidelity_ins_auc_mean,fidelity_del_delta_topk_mean,fidelity_ins_delta_topk_mean,cosine_truegrad_mean,boundary_alignment_mean
-data_wgs,ig,zero,400,1.0,,31.47362988233566,0.090238268439591,0.8939439642056822,1.727986074704677,3.596814606487751,3.596814606487751,0.8741373368911445,0.02307662144303322
-data_wgs,ig,boundary,400,1.0,,6.697909461259842,0.05175654256488694,1.405701187774539,2.4599407240748405,3.373995205163956,3.373995205163956,0.9323721356503666,-0.048094543665647506
-data_wgs,lime,zero,400,0.0,,,,,,,,,
-data_wgs,lime,boundary,400,0.0,,,,,,,,,
-data_wgs,ks,zero,400,0.0,,,,,,,,,
-data_wgs,ks,boundary,400,0.0,,,,,,,,,

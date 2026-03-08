@@ -1,2 +1,0 @@
-dataset,method_a,method_b,jaccard_topk,spearman_rank,delta_l2
-data_wgs,ig_zero,ig_boundary,1.0,0.07892856642138213,4.888703972697258
