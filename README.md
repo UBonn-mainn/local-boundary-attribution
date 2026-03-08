@@ -41,8 +41,8 @@ Evaluation follows:
 ```
 repo/
 │
-├── boundary_search/        # FGSM, IBS, CMA-ES-based search methods
-├── attribution/            # IG, SHAP, LIME, gradients
+├── boundary_search/        # FGSM, Growing Sphere, BoundaryCrawler
+├── attribution/            # IG, SHAP, LIME
 ├── evaluation/             # stability, disagreement, proximity, Co-12 metrics
 ├── experiments/            # scripts to run full pipelines
 ├── models/                 # models, training, checkpoints
@@ -56,38 +56,35 @@ repo/
 
 ### Decision Boundary Search  
 - FGSM (gradient-based)
-
-### Evaluation Suite  
-- Local stability  
-- Baseline sensitivity  
-- Inter-method disagreement  
-- Proximity metrics  
-- Co-12 quantitative metrics  
+- BoundaryCrawler
+- Growing Sphere
 
 ## Experimental Workflow
 
 ### 1. Train a classifier  
 ```bash
-python models/train_model.py
+python experiments/run_model.py
 ```
 
-### 2. Find decision-boundary baselines  
+### 2. Find boundary with Growing Sphere  
 ```bash
-python experiments/run_boundary_search.py
+python experiments/run_gs.py --root_directory <folder to find data>
 ```
 
-### 3. Compute classical & DB-based attributions  
+### 3. Find decision-boundary baselines with BoundaryCrawler,   
 ```bash
-python experiments/run_attribution.py
+python experiments/run.py --data_path <path-to-data>
+--model_path <path-to-model>
+--model_type <model-type>
+--num_classes <num-classes>
+--save_dir <path-to-save-results>
+--vis_dir <path-to-save-visualization>
+--vis_points <num-point-to-visualize>
+--sphere_samples <num-sample-to-calculate-sphere-volume>
+--ig_steps <IG-steps>
+--topk <top-k>
+--baselines <baselines-separated-by-commas>
 ```
-
-### 4. Evaluate stability, locality & disagreement  
-```bash
-python experiments/run_evaluation.py
-```
-
-### 5. Visualize & analyze results  
-Use the notebooks in `notebooks/`.
 
 ## Installation
 
