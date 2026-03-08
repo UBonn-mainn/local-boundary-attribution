@@ -33,8 +33,7 @@ We then compute attributions using \(x'\) as a **baseline** or **reference input
 
 Evaluation follows:
 
-- Rashomon disagreement analysis — Müller et al., 2023  
-- Co-12 explanation quality metrics — Nauta et al., 2023  
+- Rashomon disagreement analysis — Müller et al., 2023   
 
 ## Repository Structure
 
@@ -58,6 +57,11 @@ repo/
 - FGSM (gradient-based)
 - BoundaryCrawler
 - Growing Sphere
+
+### Attribution methods
+- IG
+- LIME
+- KernelSHAP
 
 ## Experimental Workflow
 
