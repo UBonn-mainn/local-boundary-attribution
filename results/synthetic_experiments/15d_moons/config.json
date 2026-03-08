@@ -1,6 +1,6 @@
 {
   "experiment_name": "15d_moons",
-  "timestamp": "2026-01-25T07:45:48.619483",
+  "timestamp": "2026-03-03T16:59:39.768484",
   "n_features": 15,
   "dataset_type": "moons",
   "dataset": {
@@ -8,17 +8,8 @@
     "n_features": 15,
     "n_samples_per_class": 200,
     "random_state": 42,
-    "generator": "generate_high_dim_curvy_data",
-    "pattern": "concentric",
-    "noise": 0.1,
-    "n_classes": 2,
+    "n_classes": 15,
     "total_samples": 400
-  },
-  "training": {
-    "model_type": "mlp",
-    "epochs": 150,
-    "seed": 42,
-    "save_path": "/home/iailab72/beckersa0/local-boundary-attribution/results/synthetic_experiments/15d_moons/mlp_model.pth"
   },
   "evaluation": {
     "method": "crawler",

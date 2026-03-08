@@ -1,6 +1,6 @@
 {
   "experiment_name": "2d_linear_blobs",
-  "timestamp": "2026-01-25T00:50:25.413993",
+  "timestamp": "2026-02-26T07:40:42.748067",
   "n_features": 2,
   "dataset_type": "linear_blobs",
   "dataset": {
@@ -9,14 +9,7 @@
     "n_samples_per_class": 200,
     "random_state": 42,
     "n_classes": 2,
-    "generator": "generate_linearly_separable_data",
-    "total_samples": 400
-  },
-  "training": {
-    "model_type": "linear",
-    "epochs": 50,
-    "seed": 42,
-    "save_path": "/home/iailab72/beckersa0/local-boundary-attribution/results/synthetic_experiments/2d_linear_blobs/linear_model.pth"
+    "total_samples": 600
   },
   "evaluation": {
     "method": "crawler",
