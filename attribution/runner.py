@@ -154,7 +154,7 @@ class AttributionRunner:
             target=target,
             n_samples=cfg.perturb_samples,
             feature_mask=cfg.feature_mask,
-            internal_batch_size=cfg.internal_batch_size,
+            perturbations_per_eval=cfg.perturbations_per_eval,
         )
 
     def _lime(
@@ -171,5 +171,5 @@ class AttributionRunner:
             target=target,
             n_samples=cfg.perturb_samples,
             feature_mask=cfg.feature_mask,
-            internal_batch_size=cfg.internal_batch_size,
+            perturbations_per_eval=cfg.perturbations_per_eval,
         )

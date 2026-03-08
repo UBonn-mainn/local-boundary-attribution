@@ -34,11 +34,20 @@ if __name__ == '__main__':
         if 'linear_blobs' in folder:
             print(folder + "/data.csv")
             train_model_memory(
-            # train_mlp_model_memory(
                 data_path=folder + "/data.csv",
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=lr,
                 seed=seed,
                 save_path=folder + "/model.pth"
+            )
+        if 'linear_blobs' not in folder:
+            print(folder + "/data.csv")
+            train_mlp_model_memory(
+                data_path=folder + "/data.csv",
+                epochs=epochs,
+                batch_size=batch_size,
+                lr=lr,
+                seed=seed,
+                save_path=folder + "/mlp_model.pth"
             )

@@ -23,11 +23,11 @@ if __name__ == '__main__':
     parser.add_argument("--model_type", type=str, default="mlp", choices=["mlp", "linear"])
 
     # GS oracle params
-    parser.add_argument("--gs_dirs", type=int, default=4096)
-    parser.add_argument("--gs_r_init", type=float, default=0.0)
-    parser.add_argument("--gs_r_step", type=float, default=0.005)
+    parser.add_argument("--gs_dirs", type=int, default=8192)
+    parser.add_argument("--gs_r_init", type=float, default=0.01)
+    parser.add_argument("--gs_r_step", type=float, default=0.05)
     parser.add_argument("--gs_r_max", type=float, default=40.0)
-    parser.add_argument("--gs_bisect_steps", type=int, default=30)
+    parser.add_argument("--gs_bisect_steps", type=int, default=20)
     parser.add_argument("--seed", type=int, default=0)
 
     args = parser.parse_args()
@@ -41,8 +41,8 @@ if __name__ == '__main__':
     for folder in folders:
         all_rows = []
         logging.info(folder)
-        if folder.startswith('/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/2d_'):
-            continue
+        # if not folder.startswith('/Users/nguyennhatmai/Documents/study/UBonn/WiSe2526/LabDMAI/local-boundary-attribution/results/synthetic_experiments/2d_3class'):
+        #     continue
         # if '15d_moons' not in folder:
         #     continue
         data_path = folder + '/data.csv'
@@ -77,6 +77,7 @@ if __name__ == '__main__':
         # n = min(len(X), args.max_points)
         n = len(X)
         logger.info("Evaluating %d points", n)
+
         for i in range(n):
             x_i = np.asarray(X[i], dtype=np.float32)
             y_i = int(y[i])

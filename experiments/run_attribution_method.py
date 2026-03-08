@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_ATTR_METHODS = ("ig", "lime", "ks")
-DEFAULT_BASELINES = ("zero", "boundary")
+DEFAULT_BASELINES = ("zero", "boundarycrawler", "gs")
 
 
 def l2(a: np.ndarray, b: np.ndarray) -> float:
@@ -151,7 +151,9 @@ def compute_captum_sensitivity(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run boundary search + attribution evaluation for multiple methods/baselines.")
+    parser = argparse.ArgumentParser(
+        description="Run boundary search + attribution evaluation for multiple methods/baselines."
+    )
 
     parser.add_argument("--data_path", type=str, required=True, help="Path to input CSV file")
     parser.add_argument("--model_path", type=str, required=True, help="Path to trained model checkpoint")
@@ -188,7 +190,7 @@ def main():
         "--baselines",
         type=str,
         default=",".join(DEFAULT_BASELINES),
-        help="Comma-separated baselines to run. Supported: zero,boundary",
+        help="Comma-separated baselines to run. Supported: zero,boundarycrawler,gs",
     )
     parser.add_argument("--ig_steps", type=int, default=64, help="Number of steps for Integrated Gradients.")
     parser.add_argument("--topk", type=int, default=10, help="Top-k features for Jaccard similarity.")
@@ -202,8 +204,8 @@ def main():
         help="NoiseTunnel type.",
     )
     parser.add_argument("--sg_stdevs", type=float, default=0.1, help="SmoothGrad noise stdevs.")
-    parser.add_argument("--perturb_samples", type=int, default=300, help="n_samples for KernelSHAP/LIME.")
-    parser.add_argument("--perturbations_per_eval", type=int, default=64, help="n_samples for KernelSHAP/LIME.")
+    parser.add_argument("--perturb_samples", type=int, default=500, help="n_samples for KernelSHAP/LIME.")
+    parser.add_argument("--perturbations_per_eval", type=int, default=64, help="Batch size for KernelSHAP/LIME.")
 
     parser.add_argument("--fidelity_steps", type=int, default=25, help="Steps for deletion/insertion curves.")
     parser.add_argument("--stability_eps", type=float, default=0.01, help="Perturb radius for stability.")
@@ -267,7 +269,7 @@ def main():
             x_start=x_np,
             x_enemy=x_enemy[i],
             x_boundary=x_boundary[i],
-            radius_found=float(gs_radius[i]),
+            radius_found=float(dist_x0_boundary[i]),
             success=bool(gs_success[i]),
             meta={"method": "growing_spheres_oracle"},
         )
@@ -286,7 +288,7 @@ def main():
                 model, x_np, crawler_dist, device=device, n_samples=args.sphere_samples, seed=args.seed + i
             )
         else:
-            sphere_result = {"red_frac": np.nan, "red_vol": np.nan}
+            sphere_result = {"red_frac": -1, "red_vol": -1}
 
         if crawler_success and gs_res.success and np.isfinite(gs_res.radius_found) and gs_res.radius_found > 0:
             ring = count_classes_in_ring(
@@ -302,12 +304,17 @@ def main():
             ring = {"ring_n": 0, "ring_r_min": np.nan, "ring_r_max": np.nan}
 
         attr_target = predict_class(x_input)
+
         zero_base = torch.zeros_like(x_input)
-        boundary_base = crawler_b_point if crawler_success else None
+        boundarycrawler_base = crawler_b_point if crawler_success else None
+        gs_base = None
+        if gs_res.success and gs_res.x_boundary is not None:
+            gs_base = _np_to_torch_float(gs_res.x_boundary, device=device).squeeze(0)
 
         baselines: Dict[str, Optional[torch.Tensor]] = {
             "zero": zero_base,
-            "boundary": boundary_base,
+            "boundarycrawler": boundarycrawler_base,
+            "gs": gs_base,
         }
 
         attr_results: Dict[str, Dict[str, Any]] = {}
@@ -340,14 +347,9 @@ def main():
                     attr_results[key] = metrics
                     continue
 
-                # try:
                 attr = compute_attr(runner, x_input, baseline, attr_target, cfg)
                 metrics["attr"] = attr
                 metrics["success"] = True
-                # except Exception as e:
-                #     attr_results[key] = metrics
-                #     logger.error(e)
-                #     continue
 
                 try:
                     metrics["sensitivity"] = compute_captum_sensitivity(
@@ -384,7 +386,7 @@ def main():
                     stab = stability_local_lipschitz(
                         attr_fn=lambda z, _cfg=cfg, _baseline=baseline_batched: runner.attribute(
                             x=z if z.ndim == 2 else z.unsqueeze(0),
-                            baseline=_baseline,
+                            baseline=_baseline.expand((z.shape[0] if z.ndim == 2 else 1), -1),
                             target=attr_target,
                             cfg=_cfg,
                         ),
@@ -406,7 +408,9 @@ def main():
                         pass
 
                 try:
-                    metrics["boundary_alignment"] = safe_float(boundary_alignment_cosine(metrics["attr"], x_input, baseline))
+                    metrics["boundary_alignment"] = safe_float(
+                        boundary_alignment_cosine(metrics["attr"], x_input, baseline)
+                    )
                 except Exception:
                     pass
 
@@ -559,7 +563,9 @@ def main():
             .reset_index()
         )
     else:
-        pairwise_summary_df = pd.DataFrame(columns=["dataset", "method_a", "method_b", "jaccard_topk", "spearman_rank", "delta_l2"])
+        pairwise_summary_df = pd.DataFrame(
+            columns=["dataset", "method_a", "method_b", "jaccard_topk", "spearman_rank", "delta_l2"]
+        )
     pairwise_summary_path = save_dir / "report_pairwise_summary.csv"
     pairwise_summary_df.to_csv(pairwise_summary_path, index=False)
 

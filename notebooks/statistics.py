@@ -73,8 +73,8 @@ results = []
 
 for report_path in ROOT.rglob("report.csv"):
     dataset = report_path.parent.name
+    if 'spiral' in dataset: continue
     df = pd.read_csv(report_path)
-
     coerce_bool_col(df, "crawler_success")
     coerce_bool_col(df, "gs_success")
 
