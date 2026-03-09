@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import csv
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, Any
@@ -7,6 +9,11 @@ from typing import Optional, Tuple, Any
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from torch.utils.data import DataLoader, Dataset
+from torchvision import datasets, transforms
+
+from utils.entities.filter_mnist import FilteredMNIST
 
 
 def generate_linearly_separable_data(
@@ -689,19 +696,74 @@ if __name__ == "__main__s":
         if plot_path:
             print(f"Plot saved to: {plot_path}")
 
-# X, y = make_concentric_rings(
-#     n_total=800,
-#     r_inner=0.40,
-#     r_outer=1.00,
-#     noise_inner=0.06,
-#     noise_outer=0.07,
-#     p_outer=0.71375,
-#     seed=42
-# )
-#
-# save_concentric_rings_csv("concentric_rings.csv", seed=42, n_total=800)
-#
-# plt.scatter(X[y==0,0], X[y==0,1], s=18)
-# plt.scatter(X[y==1,0], X[y==1,1], s=18)
-# plt.axis("equal")
-# plt.show()
+
+def get_mnist_dataloaders(
+    data_root: str | Path,
+    batch_size: int = 128,
+    binary_digits: Optional[Tuple[int, int]] = None,
+    num_workers: int = 2,
+):
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+    ])
+
+    train_base = datasets.MNIST(
+        root=str(data_root),
+        train=True,
+        transform=transform,
+        download=True,
+    )
+    test_base = datasets.MNIST(
+        root=str(data_root),
+        train=False,
+        transform=transform,
+        download=True,
+    )
+
+    if binary_digits is not None:
+        train_dataset = FilteredMNIST(train_base, list(binary_digits))
+        test_dataset = FilteredMNIST(test_base, list(binary_digits))
+        num_classes = 2
+    else:
+        train_dataset = train_base
+        test_dataset = test_base
+        num_classes = 10
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+    )
+
+    return train_loader, test_loader, num_classes
+
+
+def load_growing_sphere_results(path: str | Path):
+    results = {}
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sample_idx = int(row["sample_idx"])
+            gs_success = str(row["gs_success"]).lower() == "true"
+
+            results[sample_idx] = {
+                "num_features": int(row["num_features"]),
+                "x0": np.array(ast.literal_eval(row["x0"]), dtype=np.float32),
+                "class": int(row["class"]),
+                "gs_success": gs_success,
+                "found_radius": float(row["found_radius"]) if row["found_radius"] != "" else None,
+                "x_enemy": np.array(ast.literal_eval(row["x_enemy"]), dtype=np.float32)
+                if row["x_enemy"] != "" else None,
+                "x_boundary": np.array(ast.literal_eval(row["x_boundary"]), dtype=np.float32)
+                if row["x_boundary"] != "" else None,
+                "dist_x0_enemy": float(row["dist_x0_enemy"]) if row["dist_x0_enemy"] != "" else None,
+                "dist_x0_boundary": float(row["dist_x0_boundary"]) if row["dist_x0_boundary"] != "" else None,
+            }
+    return results

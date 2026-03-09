@@ -86,10 +86,38 @@ class BoundaryCrawler:
             return x.to(self.device)
         return x
 
+    def _reshape_for_model(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim == 1:
+            side = int(x.numel() ** 0.5)
+            if side * side != x.numel():
+                raise ValueError(f"Cannot reshape flat tensor of size {x.numel()} into square image.")
+            x = x.view(1, 1, side, side)
+
+        elif x.ndim == 2:
+            if x.shape[0] == 1:
+                side = int(x.shape[1] ** 0.5)
+                if side * side != x.shape[1]:
+                    raise ValueError(f"Cannot reshape flat tensor of size {x.shape[1]} into square image.")
+                x = x.view(1, 1, side, side)
+            else:
+                x = x.unsqueeze(0).unsqueeze(0)
+
+        elif x.ndim == 3:
+            x = x.unsqueeze(0)
+
+        elif x.ndim == 4:
+            pass
+
+        else:
+            raise ValueError(f"Unsupported input shape: {tuple(x.shape)}")
+
+        return x
+
+    @torch.no_grad()
     def _predict(self, x: torch.Tensor) -> int:
-        """Get model prediction for a tensor."""
-        with torch.no_grad():
-            return self.model(x).argmax(dim=-1).item()
+        x = self._reshape_for_model(x)
+        logits = self.model(self._reshape_for_model(x))
+        return int(logits.argmax(dim=-1).item())
 
     def _newton_restore(self, x_in: torch.Tensor, y_orig: int, max_steps: int = 5, tol: float = NEWTON_CONVERGENCE_TOL) -> Optional[torch.Tensor]:
         """
@@ -101,7 +129,7 @@ class BoundaryCrawler:
         for _ in range(max_steps):
             x.requires_grad_(True)
             with torch.enable_grad():
-                logits = self.model(x)
+                logits = self.model(self._reshape_for_model(x))
                 
                 probs = F.softmax(logits, dim=-1)
                 top2 = torch.topk(probs, 2, dim=-1).indices[0]
@@ -136,7 +164,7 @@ class BoundaryCrawler:
                 x = x.detach()
                 
         # Final check
-        logits = self.model(x)
+        logits = self.model(self._reshape_for_model(x))
         probs = F.softmax(logits, dim=-1)
         top2 = torch.topk(probs, 2, dim=-1).indices[0]
         
@@ -179,14 +207,19 @@ class BoundaryCrawler:
         Normal is gradient of (Logit_A - Logit_B).
         """
         x_in = self._to_device(x.clone().detach()).requires_grad_(True)
-        logits = self.model(x_in)
-        
+        logits = x = self._reshape_for_model(x_in)
+
         probs = F.softmax(logits, dim=-1)
-        top2 = torch.topk(probs, 2, dim=-1).indices[0] # [c1, c2]
-        c1, c2 = top2[0], top2[1]
-        
-        # Calculate score difference
-        score = logits[0, c1] - logits[0, c2]
+
+        top2 = torch.topk(probs, 2, dim=-1).indices.reshape(-1)
+        if top2.numel() < 2:
+            raise ValueError(f"Expected at least 2 class indices, got shape {tuple(top2.shape)}")
+
+        c1 = int(top2[0].item())
+        c2 = int(top2[1].item())
+
+        logits_flat = logits.reshape(logits.shape[0], -1)
+        score = logits_flat[0, c1] - logits_flat[0, c2]
         
         # Backprop
         self.model.zero_grad()
@@ -257,7 +290,7 @@ class BoundaryCrawler:
         
         # --- Step 1: Logit pre-filtering ---
         with torch.no_grad():
-            logits = self.model(x_t)
+            logits = self.model(self._reshape_for_model(x_t))
             num_classes = logits.shape[-1]
             
             # Compute logit gaps for all classes relative to y_orig

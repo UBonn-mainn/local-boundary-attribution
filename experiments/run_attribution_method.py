@@ -22,7 +22,7 @@ from evaluation.attribution_metrics.fidelity import fidelity_deletion_insertion
 from evaluation.attribution_metrics.ground_truth import true_gradient_attribution, cosine_with_true_gradient
 from evaluation.attribution_metrics.stability import stability_local_lipschitz
 from evaluation.decision_boundary_sphere_volume import decision_boundary_sphere_volume
-from evaluation.growing_spheres_oracle import GSOracleResult
+from boundary_search.growing_spheres_oracle import GSOracleResult
 from evaluation.ring_counts import count_classes_in_ring
 
 from utils.data.dataset_utils import load_dataset
@@ -376,7 +376,7 @@ def main():
                     )
                     metrics["fidelity_del_auc"] = safe_float(fid.deletion_auc)
                     metrics["fidelity_ins_auc"] = safe_float(fid.insertion_auc)
-                    metrics["fidelity_del_delta_topk"] = safe_float(fid.deletion_delta_topk)
+                    metrics["fidelity_del_delta_deletopk"] = safe_float(fid.deletion_delta_topk)
                     metrics["fidelity_ins_delta_topk"] = safe_float(fid.insertion_delta_topk)
                 except Exception:
                     pass

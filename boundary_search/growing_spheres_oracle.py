@@ -51,7 +51,30 @@ class GrowingSpheresOracle:
 
     @torch.no_grad()
     def _label(self, x_np: np.ndarray) -> int:
-        x_t = torch.tensor(x_np, dtype=torch.float32, device=self.device).unsqueeze(0)
+        x_t = torch.tensor(x_np, dtype=torch.float32, device=self.device)
+
+        if x_t.ndim == 1:
+            # flat vector, e.g. (784,)
+            side = int(np.sqrt(x_t.numel()))
+            if side * side != x_t.numel():
+                raise ValueError(f"Cannot reshape flat input of size {x_t.numel()} into square image.")
+            x_t = x_t.view(1, 1, side, side)
+
+        elif x_t.ndim == 2:
+            # single image without batch/channel, e.g. (28, 28)
+            x_t = x_t.unsqueeze(0).unsqueeze(0)
+
+        elif x_t.ndim == 3:
+            # already (C, H, W)
+            x_t = x_t.unsqueeze(0)
+
+        elif x_t.ndim == 4:
+            # already batched
+            pass
+
+        else:
+            raise ValueError(f"Unsupported input shape for _label: {tuple(x_t.shape)}")
+
         logits = self.model(x_t)
         return int(torch.argmax(logits, dim=-1).item())
 
@@ -72,7 +95,7 @@ class GrowingSpheresOracle:
         return v
 
     def find_boundary(self, x: np.ndarray, y: Optional[int] = None) -> GSOracleResult:
-        x = np.asarray(x, dtype=np.float32)
+        x = np.asarray(x, dtype=np.float32).reshape(-1)
         y0 = int(y) if y is not None else self._label(x)
         d = x.shape[0]
 

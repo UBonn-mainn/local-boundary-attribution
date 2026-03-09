@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from evaluation.growing_spheres_oracle import GrowingSpheresOracle
+from boundary_search.growing_spheres_oracle import GrowingSpheresOracle
 from utils import load_dataset_from_csv, load_model
 from utils.common.file_utils import find_data_csv_folders, to_row
 

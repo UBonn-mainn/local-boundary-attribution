@@ -52,82 +52,76 @@ class FGSMBoundarySearch:
             self.step_size, self.max_steps, self.boundary_bisect_steps, self.clamp, self.device, self.max_retries
         )
 
+    def _reshape_for_model(self, x: torch.Tensor) -> torch.Tensor:
+        if x.ndim == 1:
+            side = int(x.numel() ** 0.5)
+            if side * side != x.numel():
+                raise ValueError(f"Cannot reshape flat tensor of size {x.numel()} into square image.")
+            x = x.view(1, 1, side, side)
+
+        elif x.ndim == 2:
+            if x.shape[0] == 1:
+                side = int(x.shape[1] ** 0.5)
+                if side * side != x.shape[1]:
+                    raise ValueError(f"Cannot reshape flat tensor of size {x.shape[1]} into square image.")
+                x = x.view(1, 1, side, side)
+            else:
+                x = x.unsqueeze(0).unsqueeze(0)
+
+        elif x.ndim == 3:
+            x = x.unsqueeze(0)
+
+        elif x.ndim == 4:
+            pass
+
+        else:
+            raise ValueError(f"Unsupported input shape: {tuple(x.shape)}")
+
+        return x
+
     @torch.no_grad()
-    def _predict_class(self, x_b: torch.Tensor) -> int:
-        logits = self.model(x_b)
-        return int(torch.argmax(logits, dim=-1).item())
+    def _predict_class(self, x: torch.Tensor) -> int:
+        x = self._reshape_for_model(x)
+        logits = self.model(x)
+        return int(logits.argmax(dim=-1).item())
 
     def _label(self, x_np: np.ndarray) -> int:
         x_t = torch.tensor(x_np, dtype=torch.float32, device=self.device).unsqueeze(0)
         return self._predict_class(x_t)
 
-    def _newton_restore(
-        self, 
-        x_in: torch.Tensor, 
-        y_orig: int, 
-        max_steps: int = NEWTON_MAX_STEPS, 
-        tol: float = NEWTON_CONVERGENCE_TOL
-    ) -> Optional[torch.Tensor]:
-        """
-        Uses Newton's method to find the boundary (root of Logit_A - Logit_B = 0).
-        More query-efficient than bisection (approx 2-3 steps vs 10-15).
-        
-        Returns:
-            Tensor on boundary if successful, None if Newton diverged or failed.
-        """
+    def _newton_restore(self, x_in: torch.Tensor, y0: int, max_steps: int = 5, tol: float = 1e-4):
         x = x_in.clone().detach().to(self.device)
-        
-        for step in range(max_steps):
+
+        for _ in range(max_steps):
             x.requires_grad_(True)
+
             with torch.enable_grad():
-                logits = self.model(x)
-                
+                x_model = self._reshape_for_model(x)
+                logits = self.model(x_model)
+
                 probs = F.softmax(logits, dim=-1)
                 top2 = torch.topk(probs, 2, dim=-1).indices[0]
-                
                 c1, c2 = top2[0].item(), top2[1].item()
-                
-                if c1 == y_orig:
-                    y_enemy = c2
-                else:
-                    y_enemy = c1
-                    
-                score = logits[0, y_orig] - logits[0, y_enemy]
-                
-                # Check convergence
+
+                y_enemy = c2 if c1 == y0 else c1
+                score = logits[0, y0] - logits[0, y_enemy]
+
                 if abs(score.item()) < tol:
-                    logger.debug("Newton converged at step %d (score=%.6f)", step + 1, score.item())
                     return x.detach()
-                    
-                # Newton Step: x_new = x - f(x)/||grad||^2 * grad
+
                 self.model.zero_grad()
+                if x.grad is not None:
+                    x.grad.zero_()
                 score.backward()
-                
+
                 g = x.grad
-                if g is None:
+                g_norm_sq = torch.sum(g ** 2).item()
+                if g_norm_sq < 1e-12:
                     return None
-                    
-                g_norm_sq = torch.sum(g**2).item()
-                
-                if g_norm_sq < GRADIENT_VANISH_TOL:
-                    logger.debug("Newton: gradient vanished at step %d", step + 1)
-                    return None  # Gradient vanished
-                
-                # Update
-                step_update = (score.item() / g_norm_sq) * g
-                x = x - step_update
-                x = x.detach()
-                
-        # Final check: ensure we haven't diverged too far
-        with torch.no_grad():
-            logits = self.model(x)
-            probs = F.softmax(logits, dim=-1)
-            top2 = torch.topk(probs, 2, dim=-1).indices[0]
-            
-            if y_orig not in top2.tolist():
-                logger.debug("Newton: diverged away from original class")
-                return None  # Diverged too far
-                 
+
+                step = (score.item() / g_norm_sq) * g
+                x = (x - step).detach()
+
         return x.detach()
 
     def _bisect_to_boundary(self, x0: np.ndarray, x1: np.ndarray, y0: int) -> np.ndarray:
@@ -195,7 +189,7 @@ class FGSMBoundarySearch:
             
             for step in range(self.max_steps):
                 steps_taken = step + 1
-                logits = self.model(x_adv)
+                logits = self.model(self._reshape_for_model(x_adv))
                 loss = F.cross_entropy(logits, torch.tensor([y0], device=self.device))
 
                 self.model.zero_grad(set_to_none=True)
@@ -332,7 +326,7 @@ class FGSMBoundarySearch:
             
             for step in range(steps_to_use):
                 steps_taken = step + 1
-                logits = self.model(x_adv)
+                logits = self.model(self._reshape_for_model(x_adv))
                 
                 # Logit-difference objective: maximize logit[target] - logit[y_orig]
                 # We compute score and ascend its gradient

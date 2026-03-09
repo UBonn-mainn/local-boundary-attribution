@@ -123,7 +123,7 @@ def plot_2d_boundary_comparison( # show gradient color
     crawler_circle: bool = True,
     crawler_circle_radius: Optional[float] = None,
     # boundary
-    show_linear_boundary: bool = True,
+    show_linear_boundary: bool = False,
 ) -> None:
     """
     Visualize:
@@ -205,16 +205,16 @@ def plot_2d_boundary_comparison( # show gradient color
     if X_train is not None and y_train is not None and X_train.shape[1] == 2:
         ax.scatter(X_train[:, 0], X_train[:, 1], s=10, alpha=0.35)
 
-    # GS sphere (circle)
-    if show_gs_sphere and gs_radius is not None and np.isfinite(gs_radius) and gs_radius > 0:
-        ax.add_patch(
-            plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=2.0, label="GS sphere")
-        )
-
     # Crawler circle centered at x and passing through b_crawler
     if crawler_circle and r_crawler is not None and np.isfinite(r_crawler) and r_crawler > 0:
         ax.add_patch(
-            plt.Circle((x[0], x[1]), float(r_crawler), fill=False, linewidth=2.0, label="Crawler circle (|x-b_crawler|)")
+            plt.Circle((x[0], x[1]), float(r_crawler), fill=False, linewidth=1.5, edgecolor="#2ca02c", linestyle="--", label="BC sphere")
+        )
+
+    # GS sphere (circle)
+    if show_gs_sphere and gs_radius is not None and np.isfinite(gs_radius) and gs_radius > 0:
+        ax.add_patch(
+            plt.Circle((x[0], x[1]), float(gs_radius), fill=False, linewidth=1.5, edgecolor="#d62728", linestyle=":", label="GS sphere")
         )
 
     # Linear decision boundary (exact if possible else surrogate)
@@ -231,12 +231,12 @@ def plot_2d_boundary_comparison( # show gradient color
     ax.scatter([x[0]], [x[1]], marker="o", s=90, label="x")
 
     if bf is not None:
-        ax.scatter([bf[0]], [bf[1]], marker="x", s=120, label="Crawler boundary")
-        ax.plot([x[0], bf[0]], [x[1], bf[1]], linewidth=1.5)
+        ax.scatter([bf[0]], [bf[1]], marker="x", s=120, color='#2ca02c', label="BC")
+        ax.plot([x[0], bf[0]], [x[1], bf[1]], color='#2ca02c', linewidth=2.0, linestyle="--")
 
     if bg is not None:
-        ax.scatter([bg[0]], [bg[1]], marker="+", s=160, label="GS oracle boundary")
-        ax.plot([x[0], bg[0]], [x[1], bg[1]], linewidth=1.5)
+        ax.scatter([bg[0]], [bg[1]], marker="+", color='#d62728', s=120, label="GS")
+        ax.plot([x[0], bg[0]], [x[1], bg[1]], color='#d62728', linewidth=2.0, linestyle=":")
 
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
