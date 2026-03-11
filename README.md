@@ -77,7 +77,7 @@ python experiments/run_gs.py --root_directory <folder to find data>
 
 ### 3. Find decision-boundary baselines with BoundaryCrawler,   
 ```bash
-python experiments/run.py --data_path <path-to-data>
+python experiments/run_attribution_method.py --data_path <path-to-data>
 --model_path <path-to-model>
 --model_type <model-type>
 --num_classes <num-classes>
